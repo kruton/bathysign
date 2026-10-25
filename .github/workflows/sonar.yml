@@ -1,0 +1,18 @@
+name: SonarCloud
+on:
+  workflow_run:
+    workflows: [Coverage inputs]
+    types: [completed]
+permissions:
+  contents: read
+  actions: read
+  pull-requests: read
+jobs:
+  sonar:
+    uses: connectbot/actions/.github/workflows/sonar-analysis.yml@700c9d1fdc645be43ceba3e131c9decc185801a5
+    with:
+      producer_workflow: .github/workflows/coverage.yml
+      artifact_prefix: sonar-inputs
+      config_path: .github/sonar.json
+    secrets:
+      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}

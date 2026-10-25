@@ -1,0 +1,14 @@
+{
+  "project_key": "kruton_bathysign",
+  "organization": "kruton",
+  "properties": {
+    "sonar.projectName": "Bathysign",
+    "sonar.sources": "src,scripts,bathysign/scripts,build.rs",
+    "sonar.tests": "tests,bathysign/tests",
+    "sonar.sourceEncoding": "UTF-8"
+  },
+  "artifact_paths": {
+    "sonar.rust.lcov.reportPaths": ["reports/rust.lcov"],
+    "sonar.python.coverage.reportPaths": ["reports/python.xml"]
+  }
+}

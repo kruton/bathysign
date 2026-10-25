@@ -1,0 +1,16 @@
+{
+  "src/syscalls/entropy.rs": "8c30e0ae0665b964595b176cf9eaea94b63555c63dc453d7fce6f663a132009b",
+  "src/fd/socket/tcp.rs": "891edd6e12184418138980f54b2e21dd82d21c02db325ab9300bf6ee94feca71",
+  "src/syscalls/socket/mod.rs": "008d63e2605cf18bb0b3a13f04d5dc4cfa077c8185228a170eeba7a9d6032c59",
+  "src/executor/mod.rs": "6a3737a2c6c12967b12ffc329a40400a095941b3bd0328cacbf249754f0a4dcd",
+  "src/scheduler/task/mod.rs": "6e10bc7d94d2cae86b6106c727b3fa427fef5433339b55f3d4eec9b7150d62b6",
+  "src/scheduler/mod.rs": "3b96e6c9cd9e0f77f8ba31602aa508fa5c0c110dfd57067edf5db069b5b87d21",
+  "src/drivers/net/virtio/mod.rs": "a8a9bb2d14f1aa0f89c530e0b10d96c82b65c0b9559852c43bd0683df1b5eb93",
+  "src/syscalls/socket/addrinfo.rs": "f0a977d2e74e2a889ed0dccb832e7069b48becfb42de63496a0ccab5f97c373c",
+  "src/fd/eventfd.rs": "68838f03f342091878f9b4d8fd26240d6ba8375864d0714faf6ac1b23040a253",
+  "src/drivers/virtio/virtqueue/split.rs": "cbb2de648ace013f39735ac12ea88c3cb9b859d0ced54794bcac33d1312a8d92",
+  "src/drivers/virtio/virtqueue/packed.rs": "f57a2f9c21a32342fa9a5896eb33bbeb9ac4f6888efbadaad05d4116aff4b424",
+  "src/arch/x86_64/kernel/apic.rs": "2c3f09c2f4e13542fc7794cbffacba7d30af5eb6d55aa878510cfa63c2d825d8",
+  "src/drivers/pci.rs": "f067592ade481755f06289689a0d3d26e66f2bbd7a74412a18ae931f516a472b",
+  "src/syscalls/mod.rs": "91c86b5145255bb7ff68a094933d66f991ef048ad1978f4056be9a3e4def3a33"
+}

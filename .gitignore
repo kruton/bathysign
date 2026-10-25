@@ -1,0 +1,11 @@
+/target/
+/dist/
+/secrets/
+*.sqlite*
+__pycache__/
+/.local/
+
+/coverage/
+/.coverage
+/.coverage.*
+/.scannerwork/

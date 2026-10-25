@@ -1,0 +1,6 @@
+[tools]
+python = "3.14.7"
+java = "zulu-25.36.205.0"
+
+[settings.python]
+compile = false

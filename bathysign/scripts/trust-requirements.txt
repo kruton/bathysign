@@ -1,0 +1,7 @@
+# CPython 3.14.7, Linux x86_64; update together with ../runtime/mise.toml and mise.lock.
+cffi==2.1.1 --hash=sha256:b0431303acaea1089ad4b3e9ce4e6518193def1118d4073ca848635ee4ea2e96
+cryptography==50.0.2 --hash=sha256:9dab55f57c74c3cad24c323bacbbd04be4705ba6eb0d92e920b1fc4837ed5079
+pycparser==3.11 --hash=sha256:51d5a8ba2be0bbe440b99d2112604c95bbbc3c2748a64260186c541e1729cd80
+securesystemslib==1.3.1 --hash=sha256:2e5414bbdde33155a91805b295cbedc4ae3f12b48dccc63e1089093537f43c81
+tuf==6.0.0 --hash=sha256:458f663a233d95cc76dde0e1a3d01796516a05ce2781fefafebe037f7729601a
+urllib3==2.8.0 --hash=sha256:0cf3cae568d36aa9576b28dfb35f11328f1cb974ca7647d9475ebb86c75ac6e3

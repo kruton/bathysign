@@ -1,0 +1,96 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: bathysign
+spec:
+  groups:
+    - name: bathysign
+      rules:
+        # Expected HTTP misses (including the next TUF root) are not task failures.
+        # Higher-level operations report unrecovered failures; retries/timeouts alert below.
+        - alert: AndroidSignerTaskFailures
+          expr: sum by (job, instance, operation) (increase(bathysign_operations_total{outcome="failure",operation!="network_request"}[15m])) > 0 or sum by (job, instance, operation) (bathysign_operations_total{outcome="failure",operation!="network_request"}
+            unless bathysign_operations_total{outcome="failure",operation!="network_request"} offset 15m) > 0
+          labels:
+            severity: warning
+          annotations:
+            summary: 'Android signer task failures: {{ $labels.operation }}'
+        - alert: AndroidSignerNetworkTimeouts
+          expr: sum by (job, instance) (increase(bathysign_operations_total{operation="network_timeout"}[15m])) > 0 or sum by (job, instance) (bathysign_operations_total{operation="network_timeout"}
+            unless bathysign_operations_total{operation="network_timeout"} offset 15m) > 0
+          labels:
+            severity: warning
+          annotations:
+            summary: Android signer network requests timed out
+        - alert: AndroidSignerRepeatedRetries
+          expr: sum by (job, instance) (increase(bathysign_operations_total{operation=~"network_retry|job_retry"}[15m])) > 5 or sum by (job, instance) (bathysign_operations_total{operation=~"network_retry|job_retry"}
+            unless bathysign_operations_total{operation=~"network_retry|job_retry"} offset 15m) > 5
+          labels:
+            severity: warning
+          annotations:
+            summary: Android signer is repeatedly retrying work
+        - alert: AndroidSignerJobStalled
+          expr: bathysign_job_elapsed_seconds > 1800
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: Android signer job has run for over 30 minutes
+        - alert: AndroidSignerQueueStalled
+          expr: bathysign_ledger_oldest_unfinished_seconds > 3600
+          for: 10m
+          labels:
+            severity: critical
+          annotations:
+            summary: Android signing work has been unfinished for over an hour
+        - alert: AndroidSignerLeaseExpired
+          expr: bathysign_ledger_expired_leases > 0
+          for: 10m
+          labels:
+            severity: critical
+          annotations:
+            summary: Android signer has not recovered an expired job lease
+        - alert: AndroidSignerInterrupted
+          expr: increase(bathysign_ledger_events_total{kind="job.interrupted"}[15m]) > 0
+          labels:
+            severity: warning
+          annotations:
+            summary: Android signing job lost its lease or exhausted retries
+        - alert: AndroidSignerTrustExpiring
+          expr: bathysign_trust_root_expiry_timestamp_seconds - time() < 604800
+          labels:
+            severity: warning
+          annotations:
+            summary: Android signer trust roots expire within seven days
+        - alert: AndroidSignerTrustNotReady
+          expr: bathysign_trust_ready == 0
+          for: 10m
+          labels:
+            severity: critical
+          annotations:
+            summary: Android signer has no authenticated usable trust checkpoint
+        - alert: AndroidSignerTrustRefreshStale
+          expr: time() - bathysign_trust_last_online_refresh_timestamp_seconds > 7200
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: Android signer has not completed an online TUF refresh in two hours
+        - alert: AndroidSignerTrustExpiresSoon
+          expr: bathysign_trust_valid_until_timestamp_seconds > 0 and bathysign_trust_valid_until_timestamp_seconds - time() < 86400
+          labels:
+            severity: warning
+          annotations:
+            summary: Android signer TUF authorization expires within 24 hours
+        - alert: AndroidSignerTrustExpiresImminently
+          expr: bathysign_trust_valid_until_timestamp_seconds > 0 and bathysign_trust_valid_until_timestamp_seconds - time() < 3600
+          labels:
+            severity: critical
+          annotations:
+            summary: Android signer TUF authorization expires within one hour
+        - alert: AndroidSignerTrustPersistenceFailures
+          expr: increase(bathysign_operations_total{operation="trust_commit",outcome="failure"}[15m]) > 0 or (bathysign_operations_total{operation="trust_commit",outcome="failure"} unless bathysign_operations_total{operation="trust_commit",outcome="failure"} offset 15m) > 0
+          labels:
+            severity: critical
+          annotations:
+            summary: Android signer could not confirm durable trust checkpoint persistence

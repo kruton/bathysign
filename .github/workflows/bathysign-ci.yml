@@ -1,0 +1,28 @@
+name: Android signer tests
+on:
+  push:
+    branches: [main, bathysign-v1]
+  pull_request:
+    branches: [main, bathysign-v1]
+permissions:
+  contents: read
+jobs:
+  test:
+    name: Android signer contract tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./bathysign/runtime
+        with:
+          tools: python java
+      - name: Install hash-pinned trust verifier dependencies
+        run: bash bathysign/scripts/install-trust.sh "$RUNNER_TEMP/signer-trust-venv"
+      - name: Verify action contracts and adversarial publishing cases
+        run: '"$RUNNER_TEMP/signer-trust-venv/bin/python" -m unittest discover -s bathysign/tests -v'
+      - name: Validate workflow
+        run: bash scripts/lint-workflows.sh
+      - name: Test offline administration helpers
+        run: python3 -m unittest discover -s tests -p 'test_*.py' -v

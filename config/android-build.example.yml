@@ -1,0 +1,15 @@
+# Install as .github/workflows/android-build.yml, alongside the reusable file.
+name: Android unsigned build
+on:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  android:
+    uses: ./.github/workflows/android-build-reusable.yml
+    permissions:
+      actions: read
+      contents: read
+      id-token: write
+      attestations: write

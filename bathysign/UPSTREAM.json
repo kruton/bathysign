@@ -1,0 +1,13 @@
+{
+  "repository": "https://github.com/connectbot/actions",
+  "revision": "65e669cea60c50d3b817cfcbe50f90975245f68f",
+  "paths": [
+    "android-signer",
+    ".github/workflows/android-attest.yml",
+    ".github/workflows/android-finalize.yml",
+    ".github/workflows/android-publish.yml",
+    ".github/workflows/android-signer-ci.yml"
+  ],
+  "license": "Apache-2.0",
+  "note": "Public source attribution only; contains no deployment configuration."
+}

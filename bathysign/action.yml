@@ -1,0 +1,75 @@
+name: Verify and publish Android signer artifacts
+description: Prepare build metadata or verify and publish attested Hermit signing results.
+author: Bathysign
+inputs:
+  command:
+    description: 'Operation: policy, build-info, prepare, seal, verify, github, play-route, verify-play, or play.'
+    required: true
+  out:
+    description: Output directory or handoff; output file path for policy.
+    required: true
+  policy:
+    description: Explicit central policy snapshot produced by the policy command.
+  profile:
+    description: Android flavor for build-info (policy-defined profile).
+  version-code-file:
+    description: Version code file for build-info.
+  version-name-file:
+    description: Optional Gradle base version name file, keeping release labels aligned with the app version anchor.
+  source-run:
+    description: Successful source workflow run ID for prepare.
+  source-attempt:
+    description: Source workflow attempt for prepare.
+  tools:
+    description: Directory for pinned Android reference tools for prepare.
+  bundle:
+    description: Final Sigstore attestation bundle for seal.
+  manifest-sha256:
+    description: Expected release manifest hash for verify/github/play.
+  report:
+    description: Publication result path for github/play.
+  play-track:
+    description: Expected testing track (alpha or beta), checked against the verified release.
+outputs:
+  google_project:
+    description: Google project selected from verified publishing configuration.
+    value: ${{ steps.signer.outputs.google_project }}
+  play_track:
+    description: Testing track selected from the verified release, or none for a superseded main build.
+    value: ${{ steps.signer.outputs.play_track }}
+  manifest_sha256:
+    description: Verified publishing manifest digest emitted by seal.
+    value: ${{ steps.signer.outputs.manifest_sha256 }}
+runs:
+  using: composite
+  steps:
+    - name: Set up locked signer tools
+      uses: $/bathysign/runtime
+      with:
+        tools: ${{ inputs.command == 'prepare' && 'python java' || 'python' }}
+    - name: Run Android signing helper
+      id: signer
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        BATHYSIGN_ACTION_PATH: ${{ github.action_path }}
+        BATHYSIGN_COMMAND: ${{ inputs.command }}
+        BATHYSIGN_OUT: ${{ inputs.out }}
+        BATHYSIGN_POLICY: ${{ inputs.policy }}
+        BATHYSIGN_PROFILE: ${{ inputs.profile }}
+        BATHYSIGN_VERSION_NAME_FILE: ${{ inputs.version-name-file }}
+        BATHYSIGN_VERSION_CODE_FILE: ${{ inputs.version-code-file }}
+        BATHYSIGN_SOURCE_RUN: ${{ inputs.source-run }}
+        BATHYSIGN_SOURCE_ATTEMPT: ${{ inputs.source-attempt }}
+        BATHYSIGN_TOOLS: ${{ inputs.tools }}
+        BATHYSIGN_BUNDLE: ${{ inputs.bundle }}
+        BATHYSIGN_MANIFEST_SHA256: ${{ inputs.manifest-sha256 }}
+        BATHYSIGN_PLAY_TRACK: ${{ inputs.play-track }}
+        BATHYSIGN_REPORT: ${{ inputs.report }}
+      run: |
+        if [[ -n "$BATHYSIGN_POLICY" ]] && python3 -c 'import json, os, sys; sys.exit(json.load(open(os.environ["BATHYSIGN_POLICY"])).get("version") != 4)'; then
+          bash "$BATHYSIGN_ACTION_PATH/scripts/install-trust.sh" "$RUNNER_TEMP/signer-trust-venv"
+          "$RUNNER_TEMP/signer-trust-venv/bin/python" "$BATHYSIGN_ACTION_PATH/scripts/run_action.py"
+        else
+          python3 "$BATHYSIGN_ACTION_PATH/scripts/run_action.py"
+        fi

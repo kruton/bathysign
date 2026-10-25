@@ -1,0 +1,108 @@
+{
+  "listen": "0.0.0.0:8443",
+  "tls_certificate": "/root/tls.pem",
+  "tls_private_key": "/root/tls.pk8",
+  "github_app_id": 12345,
+  "github_app_private_key": "/root/github-app.pem",
+  "webhook_secret": "/root/webhook-secret",
+  "audit_url": "https://audit.example.net:8443",
+  "audit_token": "/root/audit-token",
+  "audit_ca_certificate": "/root/audit-ca.pem",
+  "max_artifact_bytes": 67108864,
+  "max_lineage_bytes": 1048576,
+  "keys": {
+    "apk-a": {
+      "private_key": "/root/apk-a.pk8",
+      "certificate": "/root/apk-a.pem",
+      "fingerprint": "REPLACE_WITH_CERTIFICATE_DER_SHA256"
+    },
+    "upload": {
+      "private_key": "/root/upload.pk8",
+      "certificate": "/root/upload.pem",
+      "fingerprint": "REPLACE_WITH_CERTIFICATE_DER_SHA256"
+    },
+    "transparency": {
+      "private_key": "/root/transparency.pk8",
+      "certificate": "/root/transparency.pem",
+      "fingerprint": "REPLACE_WITH_CERTIFICATE_DER_SHA256"
+    },
+    "receipt": {
+      "private_key": "/root/receipt.pk8",
+      "certificate": "/root/receipt.pem",
+      "fingerprint": "REPLACE_WITH_CERTIFICATE_DER_SHA256"
+    }
+  },
+  "trust_roots": {
+    "public": {
+      "file": "/root/sigstore-public.json",
+      "sha256": "REPLACE_WITH_SHA256",
+      "valid_until": 0
+    },
+    "private": {
+      "file": "/root/sigstore-github.json",
+      "sha256": "REPLACE_WITH_SHA256",
+      "valid_until": 0
+    }
+  },
+  "repositories": [
+    {
+      "id": 123456789,
+      "name": "example/android-app",
+      "refs": [
+        "refs/heads/main"
+      ],
+      "events": [
+        "push",
+        "workflow_dispatch"
+      ],
+      "runners": [
+        "github-hosted"
+      ],
+      "visibility": "public",
+      "revision": 2,
+      "callers": [
+        ".github/workflows/android-build.yml"
+      ],
+      "builder": {
+        "repository": "kruton/bathysign",
+        "repository_id": 1436515323,
+        "workflow": ".github/workflows/bathysign-attest.yml",
+        "refs": [
+          "refs/heads/bathysign-v1"
+        ]
+      },
+      "receipt_key": "receipt",
+      "profiles": {
+        "default": {
+          "package": "net.example.android",
+          "apk_artifact": "unsigned-default-{attempt}",
+          "aab_artifact": "unsigned-default-{attempt}",
+          "apk_file": "app.apk",
+          "aab_file": "app.aab",
+          "signing": {
+            "original_key": "apk-a",
+            "current_key": "apk-a",
+            "upload_key": "upload",
+            "transparency_key": "transparency",
+            "lineage": "/root/apk-lineage.bin",
+            "lineage_sha256": "REPLACE_WITH_SHA256",
+            "rotation_min_sdk": 33,
+            "allow_rollback": false,
+            "hybrid": null
+          },
+          "archive_resource": null
+        }
+      },
+      "finalizer": {
+        "repository": "kruton/bathysign",
+        "repository_id": 1436515323,
+        "workflow": ".github/workflows/bathysign-finalize.yml",
+        "refs": [
+          "refs/heads/bathysign-v1"
+        ]
+      },
+      "receipt_namespace": "bathysign"
+    }
+  ],
+  "version": 3
+}

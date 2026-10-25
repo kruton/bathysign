@@ -1,0 +1,152 @@
+name: Publish verified Android release
+on:
+  workflow_call:
+    inputs:
+      artifact_id:
+        type: string
+        required: true
+      manifest_sha256:
+        type: string
+        required: true
+permissions:
+  contents: read
+jobs:
+  github:
+    if: ${{ github.event_name == 'workflow_dispatch' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    concurrency:
+      group: publish-github-${{ github.repository_id }}-${{ inputs.manifest_sha256 }}
+      cancel-in-progress: false
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - name: Load approved organization policy
+        uses: $/bathysign
+        with:
+          command: policy
+          out: ${{ runner.temp }}/bathysign-policy.json
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          artifact-ids: ${{ inputs.artifact_id }}
+          path: ${{ runner.temp }}/publish
+          merge-multiple: true
+      - name: Verify and publish GitHub release
+        uses: $/bathysign
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BATHYSIGN_JOB_WORKFLOW_REF: ${{ job.workflow_ref }}
+          BATHYSIGN_JOB_WORKFLOW_SHA: ${{ job.workflow_sha }}
+        with:
+          command: github
+          policy: ${{ runner.temp }}/bathysign-policy.json
+          out: ${{ runner.temp }}/publish
+          manifest-sha256: ${{ inputs.manifest_sha256 }}
+          report: ${{ runner.temp }}/github-publication.json
+      - name: Preserve publication result
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: github-publication-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/github-publication.json
+          if-no-files-found: error
+  play-route:
+    if: ${{ (vars.PLAY_ALPHA_ENABLED == 'true' || vars.PLAY_BETA_ENABLED == 'true') && github.event_name == 'workflow_dispatch' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      track: ${{ steps.route.outputs.play_track }}
+      google_project: ${{ steps.route.outputs.google_project }}
+    steps:
+      - name: Load approved organization policy
+        uses: $/bathysign
+        with:
+          command: policy
+          out: ${{ runner.temp }}/bathysign-policy.json
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          artifact-ids: ${{ inputs.artifact_id }}
+          path: ${{ runner.temp }}/publish
+          merge-multiple: true
+      - name: Select track from verified publishing handoff
+        id: route
+        uses: $/bathysign
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BATHYSIGN_JOB_WORKFLOW_REF: ${{ job.workflow_ref }}
+          BATHYSIGN_JOB_WORKFLOW_SHA: ${{ job.workflow_sha }}
+        with:
+          command: play-route
+          policy: ${{ runner.temp }}/bathysign-policy.json
+          out: ${{ runner.temp }}/publish
+          manifest-sha256: ${{ inputs.manifest_sha256 }}
+  play:
+    needs: play-route
+    if: ${{ (needs.play-route.outputs.track == 'alpha' && vars.PLAY_ALPHA_ENABLED == 'true') || (needs.play-route.outputs.track == 'beta' && vars.PLAY_BETA_ENABLED == 'true') }}
+    environment: ${{ format('play-{0}', needs.play-route.outputs.track) }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    concurrency:
+      group: bathysign-play-${{ github.repository_id }}
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+    steps:
+      - name: Load approved organization policy
+        uses: $/bathysign
+        with:
+          command: policy
+          out: ${{ runner.temp }}/bathysign-policy.json
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          artifact-ids: ${{ inputs.artifact_id }}
+          path: ${{ runner.temp }}/publish
+          merge-multiple: true
+      - name: Verify publishing handoff before Google authentication
+        uses: $/bathysign
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BATHYSIGN_JOB_WORKFLOW_REF: ${{ job.workflow_ref }}
+          BATHYSIGN_JOB_WORKFLOW_SHA: ${{ job.workflow_sha }}
+        with:
+          command: verify-play
+          play-track: ${{ needs.play-route.outputs.track }}
+          policy: ${{ runner.temp }}/bathysign-policy.json
+          out: ${{ runner.temp }}/publish
+          manifest-sha256: ${{ inputs.manifest_sha256 }}
+      - name: Obtain short-lived Play credentials
+        id: google
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
+        with:
+          project_id: ${{ needs.play-route.outputs.google_project }}
+          workload_identity_provider: ${{ vars.GOOGLE_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GOOGLE_PLAY_SERVICE_ACCOUNT }}
+          token_format: access_token
+          access_token_scopes: https://www.googleapis.com/auth/androidpublisher
+          create_credentials_file: false
+          export_environment_variables: false
+      - name: Publish verified Google bundle to selected testing track
+        uses: $/bathysign
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BATHYSIGN_JOB_WORKFLOW_REF: ${{ job.workflow_ref }}
+          BATHYSIGN_JOB_WORKFLOW_SHA: ${{ job.workflow_sha }}
+          GOOGLE_PLAY_ACCESS_TOKEN: ${{ steps.google.outputs.access_token }}
+        with:
+          command: play
+          play-track: ${{ needs.play-route.outputs.track }}
+          policy: ${{ runner.temp }}/bathysign-policy.json
+          out: ${{ runner.temp }}/publish
+          manifest-sha256: ${{ inputs.manifest_sha256 }}
+          report: ${{ runner.temp }}/play-publication.json
+      - name: Preserve publication result
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: play-publication-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/play-publication.json
+          if-no-files-found: error

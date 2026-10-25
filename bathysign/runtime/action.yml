@@ -1,0 +1,18 @@
+name: Set up the Android signer runtime
+description: Install the signer's locked Python and optional Java runtime.
+inputs:
+  tools:
+    description: Tools from the signer lockfile to install.
+    default: python
+runs:
+  using: composite
+  steps:
+    - uses: jdx/mise-action@8418fedb1110381a0d3ba51a7a415d7c1b884550 # v5.2.2
+      env:
+        MISE_TRUSTED_CONFIG_PATHS: ${{ github.action_path }}
+      with:
+        version: 2026.10.17
+        working_directory: ${{ github.action_path }}
+        install_args: --locked ${{ inputs.tools }}
+        cache: false
+        add_shims_to_path: false
