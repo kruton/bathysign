@@ -24,7 +24,7 @@ pub fn read_limited(bytes: &[u8], limit: u64) -> Result<Entries> {
     let mut total = 0u64;
     for i in 0..zip.len() {
         let mut file = zip.by_index(i)?;
-        let name = file.name().to_string();
+        let name = file.name()?.into_owned();
         ensure!(
             !name.starts_with('/')
                 && !name.contains('\\')
