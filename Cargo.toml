@@ -35,7 +35,7 @@ clap = { version = "4", features = ["derive"], optional = true }
 der = { version = "0.7", features = ["alloc", "pem"] }
 ed25519-dalek = "2"
 hex = "0.4"
-hmac = "0.12"
+hmac = "0.13"
 http = "1"
 hyper = { version = "1", features = ["server", "http1"] }
 hyper-util = { version = "=0.1.14", features = ["server", "tokio", "service"] }
