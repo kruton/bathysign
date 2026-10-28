@@ -75,7 +75,7 @@ hermit = { git = "https://github.com/hermit-os/hermit-rs", tag = "hermit-0.13.2"
 
 [dev-dependencies]
 tempfile = "3"
-rcgen = { version = "0.13", default-features = false, features = ["pem", "crypto", "ring"] }
+rcgen = { version = "0.14", default-features = false, features = ["pem", "crypto", "ring"] }
 
 [profile.release]
 lto = "thin"

@@ -7,7 +7,7 @@ async fn closing_metrics_client_receives_complete_multi_record_response() {
     let certificate = directory.path().join("certificate.pem");
     let private_key = directory.path().join("key.pem");
     std::fs::write(&certificate, identity.cert.pem()).unwrap();
-    std::fs::write(&private_key, identity.key_pair.serialize_pem()).unwrap();
+    std::fs::write(&private_key, identity.signing_key.serialize_pem()).unwrap();
     let socket = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     let address = socket.local_addr().unwrap();
     drop(socket);
