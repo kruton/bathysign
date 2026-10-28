@@ -262,10 +262,10 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
- "sigstore-crypto",
- "sigstore-trust-root",
+ "sigstore-crypto 0.15.0",
+ "sigstore-trust-root 0.15.0",
  "sigstore-tuf",
- "sigstore-types",
+ "sigstore-types 0.15.0",
  "sigstore-verify",
  "snap",
  "subtle",
@@ -2233,11 +2233,11 @@ dependencies = [
 
 [[package]]
 name = "sigstore-bundle"
-version = "0.15.0"
-source = "git+https://github.com/sigstore/sigstore-rust?rev=f950b1b683560aadf7737539f8d7eaa656a9f0c0#f950b1b683560aadf7737539f8d7eaa656a9f0c0"
+version = "0.15.1"
+source = "git+https://github.com/sigstore/sigstore-rust?rev=e441356183ffd664ffe559721a08d9414c9d8c2d#e441356183ffd664ffe559721a08d9414c9d8c2d"
 dependencies = [
  "jiff",
- "sigstore-types",
+ "sigstore-types 0.15.1",
  "thiserror",
 ]
 
@@ -2251,7 +2251,23 @@ dependencies = [
  "futures-io",
  "jiff",
  "rustls-pki-types",
- "sigstore-types",
+ "sigstore-types 0.15.0",
+ "spki 0.7.3",
+ "thiserror",
+ "x509-cert",
+]
+
+[[package]]
+name = "sigstore-crypto"
+version = "0.15.1"
+source = "git+https://github.com/sigstore/sigstore-rust?rev=e441356183ffd664ffe559721a08d9414c9d8c2d#e441356183ffd664ffe559721a08d9414c9d8c2d"
+dependencies = [
+ "const-oid 0.9.6",
+ "der 0.7.10",
+ "futures-io",
+ "jiff",
+ "rustls-pki-types",
+ "sigstore-types 0.15.1",
  "spki 0.7.3",
  "thiserror",
  "x509-cert",
@@ -2259,18 +2275,18 @@ dependencies = [
 
 [[package]]
 name = "sigstore-merkle"
-version = "0.15.0"
-source = "git+https://github.com/sigstore/sigstore-rust?rev=f950b1b683560aadf7737539f8d7eaa656a9f0c0#f950b1b683560aadf7737539f8d7eaa656a9f0c0"
+version = "0.15.1"
+source = "git+https://github.com/sigstore/sigstore-rust?rev=e441356183ffd664ffe559721a08d9414c9d8c2d#e441356183ffd664ffe559721a08d9414c9d8c2d"
 dependencies = [
- "sigstore-crypto",
- "sigstore-types",
+ "sigstore-crypto 0.15.1",
+ "sigstore-types 0.15.1",
  "thiserror",
 ]
 
 [[package]]
 name = "sigstore-rekor"
-version = "0.15.0"
-source = "git+https://github.com/sigstore/sigstore-rust?rev=f950b1b683560aadf7737539f8d7eaa656a9f0c0#f950b1b683560aadf7737539f8d7eaa656a9f0c0"
+version = "0.15.1"
+source = "git+https://github.com/sigstore/sigstore-rust?rev=e441356183ffd664ffe559721a08d9414c9d8c2d#e441356183ffd664ffe559721a08d9414c9d8c2d"
 dependencies = [
  "base64 0.23.1",
  "hex",
@@ -2278,7 +2294,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sigstore-merkle",
- "sigstore-types",
+ "sigstore-types 0.15.1",
  "thiserror",
 ]
 
@@ -2290,15 +2306,28 @@ dependencies = [
  "jiff",
  "serde",
  "serde_json",
- "sigstore-crypto",
- "sigstore-types",
+ "sigstore-crypto 0.15.0",
+ "sigstore-types 0.15.0",
+ "thiserror",
+]
+
+[[package]]
+name = "sigstore-trust-root"
+version = "0.15.1"
+source = "git+https://github.com/sigstore/sigstore-rust?rev=e441356183ffd664ffe559721a08d9414c9d8c2d#e441356183ffd664ffe559721a08d9414c9d8c2d"
+dependencies = [
+ "jiff",
+ "serde",
+ "serde_json",
+ "sigstore-crypto 0.15.1",
+ "sigstore-types 0.15.1",
  "thiserror",
 ]
 
 [[package]]
 name = "sigstore-tsa"
-version = "0.15.0"
-source = "git+https://github.com/sigstore/sigstore-rust?rev=f950b1b683560aadf7737539f8d7eaa656a9f0c0#f950b1b683560aadf7737539f8d7eaa656a9f0c0"
+version = "0.15.1"
+source = "git+https://github.com/sigstore/sigstore-rust?rev=e441356183ffd664ffe559721a08d9414c9d8c2d#e441356183ffd664ffe559721a08d9414c9d8c2d"
 dependencies = [
  "cms",
  "const-oid 0.9.6",
@@ -2307,8 +2336,8 @@ dependencies = [
  "jiff",
  "rustls-pki-types",
  "rustls-webpki 0.103.15",
- "sigstore-crypto",
- "sigstore-types",
+ "sigstore-crypto 0.15.1",
+ "sigstore-types 0.15.1",
  "thiserror",
  "tracing",
  "x509-cert",
@@ -2324,8 +2353,8 @@ dependencies = [
  "jiff",
  "serde",
  "serde_json",
- "sigstore-crypto",
- "sigstore-types",
+ "sigstore-crypto 0.15.0",
+ "sigstore-types 0.15.0",
  "tempfile",
  "thiserror",
  "tracing",
@@ -2346,9 +2375,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "sigstore-types"
+version = "0.15.1"
+source = "git+https://github.com/sigstore/sigstore-rust?rev=e441356183ffd664ffe559721a08d9414c9d8c2d#e441356183ffd664ffe559721a08d9414c9d8c2d"
+dependencies = [
+ "base64 0.23.1",
+ "hex",
+ "jiff",
+ "pem 4.0.0",
+ "serde",
+ "serde_json",
+ "thiserror",
+]
+
+[[package]]
 name = "sigstore-verify"
-version = "0.15.0"
-source = "git+https://github.com/sigstore/sigstore-rust?rev=f950b1b683560aadf7737539f8d7eaa656a9f0c0#f950b1b683560aadf7737539f8d7eaa656a9f0c0"
+version = "0.15.1"
+source = "git+https://github.com/sigstore/sigstore-rust?rev=e441356183ffd664ffe559721a08d9414c9d8c2d#e441356183ffd664ffe559721a08d9414c9d8c2d"
 dependencies = [
  "base64 0.23.1",
  "const-oid 0.9.6",
@@ -2361,12 +2404,12 @@ dependencies = [
  "serde_json",
  "serde_json_canonicalizer",
  "sigstore-bundle",
- "sigstore-crypto",
+ "sigstore-crypto 0.15.1",
  "sigstore-merkle",
  "sigstore-rekor",
- "sigstore-trust-root",
+ "sigstore-trust-root 0.15.1",
  "sigstore-tsa",
- "sigstore-types",
+ "sigstore-types 0.15.1",
  "thiserror",
  "tls_codec",
  "tracing",

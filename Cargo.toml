@@ -58,7 +58,7 @@ jiff = "0.2"
 sigstore-tuf = { git = "https://github.com/sigstore/sigstore-rust", rev = "f950b1b683560aadf7737539f8d7eaa656a9f0c0", default-features = false }
 sigstore-types = { git = "https://github.com/sigstore/sigstore-rust", rev = "f950b1b683560aadf7737539f8d7eaa656a9f0c0", default-features = false }
 sigstore-trust-root = { git = "https://github.com/sigstore/sigstore-rust", rev = "f950b1b683560aadf7737539f8d7eaa656a9f0c0", default-features = false }
-sigstore-verify = { git = "https://github.com/sigstore/sigstore-rust", rev = "f950b1b683560aadf7737539f8d7eaa656a9f0c0", default-features = false }
+sigstore-verify = { git = "https://github.com/sigstore/sigstore-rust", rev = "e441356183ffd664ffe559721a08d9414c9d8c2d", default-features = false }
 subtle = "2"
 tokio = { version = "=1.45.0", features = ["rt", "macros", "net", "time", "sync", "io-util", "fs"] }
 tokio-util = { version = "=0.7.15", default-features = false }
