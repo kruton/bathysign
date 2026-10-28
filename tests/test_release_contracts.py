@@ -48,6 +48,7 @@ class ReleaseContracts(unittest.TestCase):
             (directory / 'provenance.json').write_text('{}')
             (directory / 'offline').mkdir()
             (directory / 'offline/inputs.tar.gz.part-00').write_bytes(b'offline')
+            (directory / 'offline/builder.tar.part-00').write_bytes(b'builder')
         self.evidence = self.root / 'evidence'
         self.evidence.mkdir()
         (self.evidence / 'evidence-provenance.json').write_text('{}')
@@ -55,6 +56,8 @@ class ReleaseContracts(unittest.TestCase):
         arch = self.evidence / 'container-amd64-1'
         arch.mkdir()
         (arch / 'reproducibility.json').write_text('{}')
+        (arch / 'sbom.spdx.json').write_text('{}')
+        (arch / 'collector.oci.tar').write_bytes(b'container image')
 
     def verify(self):
         return cli('verify-release.py', self.downloads, '--commit', COMMIT, '--ref', REF)
@@ -62,7 +65,7 @@ class ReleaseContracts(unittest.TestCase):
     def test_verifies_every_artifact_with_exact_builder_and_source_policy(self):
         with mock.patch.object(subprocess, 'run') as gh:
             self.verify()
-        self.assertEqual(len(gh.call_args_list), 18)
+        self.assertEqual(len(gh.call_args_list), 21)
         for call in gh.call_args_list:
             args = call.args[0]
             self.assertEqual(args[:3], ['gh', 'attestation', 'verify'])
@@ -142,22 +145,37 @@ class ReleaseContracts(unittest.TestCase):
             cli('publish-release.py', self.downloads, REF.removeprefix('refs/tags/'), COMMIT, self.evidence)
         return staged, calls
 
-    def test_publication_has_all_inputs_checksums_and_container_evidence(self):
+    def test_publication_has_only_install_archives_checksums_and_verification_bundle(self):
         staged, calls = self.publish()
+        self.assertEqual(set(staged), {
+            *(f'bathysign-{target}.tar.gz' for target in TARGETS),
+            'bathysign-0.1.0-verification.tar.gz', 'SHA256SUMS',
+        })
         self.assertIn('SHA256SUMS', staged)
         sums = staged.pop('SHA256SUMS').decode().splitlines()
         expected = {f'{hashlib.sha256(data).hexdigest()}  {name}' for name, data in staged.items()}
         self.assertEqual(set(sums), expected)
         for target in TARGETS:
             self.assertIn(f'bathysign-{target}.tar.gz', staged)
-            self.assertIn(f'{target}-inputs.tar.gz.part-00', staged)
-        self.assertIn('container-container-amd64-1-reproducibility.json', staged)
+        with tarfile.open(fileobj=io.BytesIO(staged['bathysign-0.1.0-verification.tar.gz'])) as bundle:
+            expected = {'VERIFY.md', 'containers/evidence-provenance.json', 'containers/image-provenance.json',
+                        'containers/container-amd64-1/reproducibility.json', 'containers/container-amd64-1/sbom.spdx.json'}
+            for target in TARGETS:
+                for name in ('inputs.json', 'provenance.json', 'reproducibility.json', 'sbom.spdx.json', 'sbom-attestation.json'):
+                    expected.add(target + '/' + name)
+                    self.assertEqual(bundle.extractfile(target + '/' + name).read(), (self.downloads / target / name).read_bytes())
+            self.assertEqual(set(bundle.getnames()), expected)
         create = next(args for args in calls if args[:3] == ['gh', 'release', 'create'])
         self.assertIn('--prerelease', create)
         self.assertIn('--verify-tag', create)
         self.assertEqual(create[create.index('--target') + 1], COMMIT)
+        notes = create[create.index('--notes') + 1]
+        self.assertIn('Signing appliance', notes)
+        self.assertIn('AMD64 Linux', notes)
+        self.assertIn('ARM64 Linux', notes)
+        self.assertIn('ghcr.io/kruton/bathysign-collector:v0.1.0', notes)
         evidence = [args for args in calls if args[:3] == ['gh', 'attestation', 'verify']]
-        self.assertEqual(len(evidence), 2)
+        self.assertEqual(len(evidence), 4)
         for args in evidence:
             self.assertEqual(args[args.index('--source-digest') + 1], COMMIT)
 
