@@ -1,5 +1,5 @@
 [tools]
-python = "3.14.7"
+python = "3.15.2"
 java = "zulu-25.36.205.0"
 
 [settings.python]
