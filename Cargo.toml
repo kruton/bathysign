@@ -41,7 +41,7 @@ hyper = { version = "1", features = ["server", "http1"] }
 hyper-util = { version = "=0.1.14", features = ["server", "tokio", "service"] }
 ml-dsa = { version = "=0.1.1", features = ["zeroize"] }
 p256 = { version = "0.13", features = ["ecdsa"] }
-p384 = { version = "0.13", features = ["ecdsa"] }
+p384 = { version = "0.14", features = ["ecdsa"] }
 rand = "0.8"
 reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls-webpki-roots-no-provider"] }
 rsa = { version = "0.9", features = ["sha2"] }
