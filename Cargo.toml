@@ -70,7 +70,7 @@ zeroize = { version = "1", features = ["derive"] }
 zip = { version = "2.4", default-features = false, features = ["deflate"] }
 
 [target.'cfg(target_os = "hermit")'.dependencies]
-hermit = { git = "https://github.com/hermit-os/hermit-rs", tag = "hermit-0.13.0", default-features = false, features = ["acpi", "pci", "tcp", "udp", "dns", "dhcpv4", "virtio-net", "virtio-fs"] }
+hermit = { git = "https://github.com/hermit-os/hermit-rs", tag = "hermit-0.13.2", default-features = false, features = ["acpi", "pci", "tcp", "udp", "dns", "dhcpv4", "virtio-net", "virtio-fs"] }
 
 [dev-dependencies]
 tempfile = "3"

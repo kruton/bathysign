@@ -1,4 +1,9 @@
-# Checked Hermit 0.13 compatibility fixes
+# Checked Hermit 0.13.2 compatibility fixes
+
+The pinned `hermit-0.13.2` release uses kernel
+`f51061476ecaa2066779c473a683d8b35b315d9b`. All compatibility patches still
+apply to this release; none are superseded by its upstream changes. The kernel
+toolchain remains `nightly-2026-02-01`.
 
 The build helper copies the kernel from the exact Hermit dependency in Cargo.lock.
 It checks upstream file hashes before applying replacements; it does not edit the
@@ -55,7 +60,7 @@ the old fallback warning.
   interruption, and I/O errors: `python3 tests/kernel-vectored-io.py --kernel
   <prepared-kernel>`.
 
-These fixes were exercised with a real Hermit guest under QEMU TCG, including an
+These fixes were exercised with a real Hermit 0.13.2 guest under QEMU TCG, including an
 external collector outage without extra traffic to wake the guest. The negative
 boot test without RDSEED halts before loading signing keys. Re-evaluate these
 patches against upstream when upgrading the kernel; changed upstream files fail

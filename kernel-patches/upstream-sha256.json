@@ -10,7 +10,7 @@
   "src/fd/eventfd.rs": "68838f03f342091878f9b4d8fd26240d6ba8375864d0714faf6ac1b23040a253",
   "src/drivers/virtio/virtqueue/split.rs": "cbb2de648ace013f39735ac12ea88c3cb9b859d0ced54794bcac33d1312a8d92",
   "src/drivers/virtio/virtqueue/packed.rs": "f57a2f9c21a32342fa9a5896eb33bbeb9ac4f6888efbadaad05d4116aff4b424",
-  "src/arch/x86_64/kernel/apic.rs": "2c3f09c2f4e13542fc7794cbffacba7d30af5eb6d55aa878510cfa63c2d825d8",
+  "src/arch/x86_64/kernel/apic.rs": "841b4b844f32ac1ab10c270cc8c65f155bb02c69d8dd7ed761e08a5c439fd192",
   "src/drivers/pci.rs": "f067592ade481755f06289689a0d3d26e66f2bbd7a74412a18ae931f516a472b",
   "src/syscalls/mod.rs": "91c86b5145255bb7ff68a094933d66f991ef048ad1978f4056be9a3e4def3a33"
 }

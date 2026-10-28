@@ -62,57 +62,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "bathysign"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "axum",
- "base64 0.22.1",
- "bytes",
- "clap",
- "cms",
- "der 0.7.10",
- "ed25519-dalek",
- "hermit",
- "hex",
- "hmac",
- "http",
- "hyper",
- "hyper-util",
- "jiff",
- "ml-dsa",
- "p256",
- "p384",
- "rand",
- "rcgen",
- "reqwest",
- "rsa",
- "rusqlite",
- "rustls",
- "rustls-pemfile",
- "rustls-rustcrypto",
- "serde",
- "serde_json",
- "sha2",
- "sigstore-crypto",
- "sigstore-trust-root",
- "sigstore-tuf",
- "sigstore-types",
- "sigstore-verify",
- "snap",
- "subtle",
- "tempfile",
- "tokio",
- "tokio-rustls",
- "tokio-util",
- "tracing",
- "tracing-subscriber",
- "x509-cert",
- "zeroize",
- "zip",
-]
-
-[[package]]
 name = "anstream"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -279,6 +228,57 @@ name = "base64ct"
 version = "1.8.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2af50177e190e07a26ab74f8b1efbfe2ef87da2116221318cb1c2e82baf7de06"
+
+[[package]]
+name = "bathysign"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "axum",
+ "base64 0.22.1",
+ "bytes",
+ "clap",
+ "cms",
+ "der 0.7.10",
+ "ed25519-dalek",
+ "hermit",
+ "hex",
+ "hmac",
+ "http",
+ "hyper",
+ "hyper-util",
+ "jiff",
+ "ml-dsa",
+ "p256",
+ "p384",
+ "rand",
+ "rcgen",
+ "reqwest",
+ "rsa",
+ "rusqlite",
+ "rustls",
+ "rustls-pemfile",
+ "rustls-rustcrypto",
+ "serde",
+ "serde_json",
+ "sha2",
+ "sigstore-crypto",
+ "sigstore-trust-root",
+ "sigstore-tuf",
+ "sigstore-types",
+ "sigstore-verify",
+ "snap",
+ "subtle",
+ "tempfile",
+ "tokio",
+ "tokio-rustls",
+ "tokio-util",
+ "tracing",
+ "tracing-subscriber",
+ "x509-cert",
+ "zeroize",
+ "zip",
+]
 
 [[package]]
 name = "bitflags"
@@ -737,7 +737,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -970,8 +970,8 @@ checksum = "2304e00983f87ffb38b55b444b5e3b60a884b5d30c0fca7d82fe33449bbe55ea"
 
 [[package]]
 name = "hermit"
-version = "0.13.0"
-source = "git+https://github.com/hermit-os/hermit-rs?tag=hermit-0.13.0#560ddfa7278e7d9fd4fe5f7126c4c3fe3b3ff03d"
+version = "0.13.2"
+source = "git+https://github.com/hermit-os/hermit-rs?tag=hermit-0.13.2#0e68850e7b848656f8704b6c1fdc3a09685cb4de"
 dependencies = [
  "cc",
  "home",
@@ -1973,7 +1973,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -2508,7 +2508,7 @@ dependencies = [
  "getrandom 0.4.3",
  "once_cell",
  "rustix",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
