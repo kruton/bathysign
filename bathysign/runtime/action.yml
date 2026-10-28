@@ -11,7 +11,7 @@ runs:
       env:
         MISE_TRUSTED_CONFIG_PATHS: ${{ github.action_path }}
       with:
-        version: 2026.10.17
+        version: 2026.10.21
         working_directory: ${{ github.action_path }}
         install_args: --locked ${{ inputs.tools }}
         cache: false
