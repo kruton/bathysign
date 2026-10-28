@@ -288,7 +288,7 @@ impl Store {
         Ok(())
     }
     pub fn claim(&self) -> Result<Option<Claimed>> {
-        use rand::RngCore;
+        use rand::TryRng;
         let now = crate::config::now()?;
         let mut db = self
             .db
@@ -326,7 +326,7 @@ impl Store {
             return Ok(None);
         };
         let mut bytes = [0; 32];
-        rand::rngs::OsRng.try_fill_bytes(&mut bytes)?;
+        rand::rngs::SysRng.try_fill_bytes(&mut bytes)?;
         let lease = hex::encode(bytes);
         tx.execute("UPDATE jobs SET status='running',lease=?1,lease_until=?2,attempts=attempts+1 WHERE id=?3",params![lease,now+300,id])?;
         if status == "running" {

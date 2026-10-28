@@ -73,7 +73,7 @@ async fn fixture() -> (App, Arc<Collector>, tokio::task::JoinHandle<()>) {
     )
 }
 fn signed_headers(body: &[u8], secret: &[u8], event: &str) -> HeaderMap {
-    use hmac::{Hmac, Mac};
+    use hmac::{Hmac, KeyInit, Mac};
     let mut hmac = Hmac::<sha2::Sha256>::new_from_slice(secret).unwrap();
     hmac.update(body);
     let mut headers = HeaderMap::new();

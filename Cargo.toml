@@ -32,17 +32,17 @@ base64 = "0.22"
 bytes = "1"
 cms = "0.2"
 clap = { version = "4", features = ["derive"], optional = true }
-der = { version = "0.7", features = ["alloc", "pem"] }
-ed25519-dalek = "2"
+der = { version = "0.8", features = ["alloc", "pem"] }
+ed25519-dalek = "3"
 hex = "0.4"
-hmac = "0.12"
+hmac = "0.13"
 http = "1"
 hyper = { version = "1", features = ["server", "http1"] }
 hyper-util = { version = "=0.1.21", features = ["server", "tokio", "service"] }
 ml-dsa = { version = "=0.1.1", features = ["zeroize"] }
-p256 = { version = "0.13", features = ["ecdsa"] }
-p384 = { version = "0.13", features = ["ecdsa"] }
-rand = "0.8"
+p256 = { version = "0.14", features = ["ecdsa"] }
+p384 = { version = "0.14", features = ["ecdsa"] }
+rand = "0.10"
 reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls-webpki-roots-no-provider"] }
 rsa = { version = "0.9", features = ["sha2"] }
 rusqlite = { version = "0.37", features = ["bundled"], optional = true }
@@ -51,7 +51,7 @@ rustls-pemfile = "2"
 rustls-rustcrypto = "=0.0.2-alpha"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-sha2 = { version = "0.10", features = ["oid"] }
+sha2 = { version = "0.11", features = ["oid"] }
 snap = "1.1"
 sigstore-crypto = { git = "https://github.com/sigstore/sigstore-rust", rev = "e441356183ffd664ffe559721a08d9414c9d8c2d", default-features = false }
 jiff = "0.2"
@@ -65,7 +65,7 @@ tokio-util = { version = "=0.7.15", default-features = false }
 tokio-rustls = { version = "0.26", default-features = false, features = ["tls12"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-x509-cert = { version = "0.2", features = ["pem"] }
+x509-cert = { version = "0.3", features = ["pem"] }
 zeroize = { version = "1", features = ["derive"] }
 zip = { version = "2.4", default-features = false, features = ["deflate"] }
 

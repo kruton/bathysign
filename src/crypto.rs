@@ -1,5 +1,6 @@
 use anyhow::{Result, bail, ensure};
 use der::{Decode, DecodePem, Encode};
+// RSA 0.9 uses older digest and RNG traits; use its reexports at RSA call sites.
 use rsa::{
     RsaPrivateKey, RsaPublicKey,
     pkcs8::{DecodePrivateKey, EncodePublicKey},
@@ -66,8 +67,8 @@ impl SigningKey {
         };
         let cert = Certificate::from_der(&certificate)?;
         let private = if cert
-            .tbs_certificate
-            .subject_public_key_info
+            .tbs_certificate()
+            .subject_public_key_info()
             .algorithm
             .oid
             .to_string()
@@ -87,8 +88,8 @@ impl SigningKey {
         } else {
             use ml_dsa::pkcs8::DecodePrivateKey as _;
             ensure!(
-                cert.tbs_certificate
-                    .subject_public_key_info
+                cert.tbs_certificate()
+                    .subject_public_key_info()
                     .algorithm
                     .oid
                     .to_string()
@@ -104,12 +105,13 @@ impl SigningKey {
                 Err(_) => {
                     // OpenSSL emits the RFC 9881 "both" form: seed + expanded key.
                     // Derive from the seed; never decode unchecked expanded material.
-                    let info = rsa::pkcs8::PrivateKeyInfo::from_der(&bytes)?;
+                    let info = ml_dsa::pkcs8::PrivateKeyInfoRef::from_der(&bytes)?;
                     ensure!(
                         info.algorithm.oid.to_string() == "2.16.840.1.101.3.4.3.18",
                         "wrong ML-DSA private-key algorithm"
                     );
-                    let pair = Vec::<der::asn1::OctetStringRef<'_>>::from_der(info.private_key)?;
+                    let pair =
+                        Vec::<&der::asn1::OctetStringRef>::from_der(info.private_key.as_bytes())?;
                     ensure!(
                         pair.len() == 2
                             && pair[0].as_bytes().len() == 32
@@ -137,7 +139,7 @@ impl SigningKey {
             certificate,
         };
         ensure!(
-            key.spki()? == cert.tbs_certificate.subject_public_key_info.to_der()?,
+            key.spki()? == cert.tbs_certificate().subject_public_key_info().to_der()?,
             "private key and certificate differ"
         );
         Ok(key)
@@ -163,7 +165,7 @@ impl SigningKey {
             PrivateKey::MlDsa65(k) => {
                 // ml-dsa uses the newer spki/der generation. Compare the wire encoding.
                 let cert = Certificate::from_der(&self.certificate)?;
-                let mut spki = cert.tbs_certificate.subject_public_key_info.clone();
+                let mut spki = cert.tbs_certificate().subject_public_key_info().clone();
                 spki.subject_public_key =
                     der::asn1::BitString::from_bytes(&k.expanded_key().verifying_key().encode())?;
                 Ok(spki.to_der()?)
@@ -172,16 +174,16 @@ impl SigningKey {
     }
     pub fn sign(&self, algorithm: u32, message: &[u8]) -> Result<Vec<u8>> {
         match (&self.private, algorithm) {
-            (PrivateKey::Rsa(k), RSA_SHA256) => {
-                Ok(rsa::pkcs1v15::SigningKey::<Sha256>::new((**k).clone())
-                    .try_sign_with_rng(&mut rand::rngs::OsRng, message)?
-                    .to_vec())
-            }
-            (PrivateKey::Rsa(k), RSA_SHA512) => {
-                Ok(rsa::pkcs1v15::SigningKey::<Sha512>::new((**k).clone())
-                    .try_sign_with_rng(&mut rand::rngs::OsRng, message)?
-                    .to_vec())
-            }
+            (PrivateKey::Rsa(k), RSA_SHA256) => Ok(
+                rsa::pkcs1v15::SigningKey::<rsa::sha2::Sha256>::new((**k).clone())
+                    .try_sign_with_rng(&mut rsa::rand_core::OsRng, message)?
+                    .to_vec(),
+            ),
+            (PrivateKey::Rsa(k), RSA_SHA512) => Ok(
+                rsa::pkcs1v15::SigningKey::<rsa::sha2::Sha512>::new((**k).clone())
+                    .try_sign_with_rng(&mut rsa::rand_core::OsRng, message)?
+                    .to_vec(),
+            ),
             (PrivateKey::MlDsa65(k), ML_DSA) => Ok(k
                 .expanded_key()
                 .sign_deterministic(message, &[])?
@@ -195,24 +197,28 @@ impl SigningKey {
 pub fn verify(certificate: &[u8], algorithm: u32, message: &[u8], sig: &[u8]) -> Result<()> {
     use rsa::pkcs8::DecodePublicKey;
     let cert = Certificate::from_der(certificate)?;
-    let spki = cert.tbs_certificate.subject_public_key_info.to_der()?;
+    let spki = cert.tbs_certificate().subject_public_key_info().to_der()?;
     match algorithm {
-        0x0101 => rsa::pss::VerifyingKey::<Sha256>::new(RsaPublicKey::from_public_key_der(&spki)?)
-            .verify(message, &rsa::pss::Signature::try_from(sig)?)?,
-        0x0102 => rsa::pss::VerifyingKey::<Sha512>::new(RsaPublicKey::from_public_key_der(&spki)?)
-            .verify(message, &rsa::pss::Signature::try_from(sig)?)?,
-        RSA_SHA256 => {
-            rsa::pkcs1v15::VerifyingKey::<Sha256>::new(RsaPublicKey::from_public_key_der(&spki)?)
-                .verify(message, &rsa::pkcs1v15::Signature::try_from(sig)?)?
-        }
-        RSA_SHA512 => {
-            rsa::pkcs1v15::VerifyingKey::<Sha512>::new(RsaPublicKey::from_public_key_der(&spki)?)
-                .verify(message, &rsa::pkcs1v15::Signature::try_from(sig)?)?
-        }
+        0x0101 => rsa::pss::VerifyingKey::<rsa::sha2::Sha256>::new(
+            RsaPublicKey::from_public_key_der(&spki)?,
+        )
+        .verify(message, &rsa::pss::Signature::try_from(sig)?)?,
+        0x0102 => rsa::pss::VerifyingKey::<rsa::sha2::Sha512>::new(
+            RsaPublicKey::from_public_key_der(&spki)?,
+        )
+        .verify(message, &rsa::pss::Signature::try_from(sig)?)?,
+        RSA_SHA256 => rsa::pkcs1v15::VerifyingKey::<rsa::sha2::Sha256>::new(
+            RsaPublicKey::from_public_key_der(&spki)?,
+        )
+        .verify(message, &rsa::pkcs1v15::Signature::try_from(sig)?)?,
+        RSA_SHA512 => rsa::pkcs1v15::VerifyingKey::<rsa::sha2::Sha512>::new(
+            RsaPublicKey::from_public_key_der(&spki)?,
+        )
+        .verify(message, &rsa::pkcs1v15::Signature::try_from(sig)?)?,
         ML_DSA => {
             ensure!(
-                cert.tbs_certificate
-                    .subject_public_key_info
+                cert.tbs_certificate()
+                    .subject_public_key_info()
                     .algorithm
                     .oid
                     .to_string()
@@ -220,8 +226,8 @@ pub fn verify(certificate: &[u8], algorithm: u32, message: &[u8], sig: &[u8]) ->
                 "wrong ML-DSA certificate"
             );
             let bytes = cert
-                .tbs_certificate
-                .subject_public_key_info
+                .tbs_certificate()
+                .subject_public_key_info()
                 .subject_public_key
                 .as_bytes()
                 .ok_or_else(|| anyhow::anyhow!("invalid public key bit string"))?;
@@ -294,6 +300,7 @@ impl sigstore_crypto::CryptoProvider for RustCryptoProvider {
         digest: &[u8],
         signature: &[u8],
     ) -> sigstore_crypto::Result<()> {
+        use p256::ecdsa::signature::hazmat::PrehashVerifier as _;
         use rsa::pkcs1::DecodeRsaPublicKey;
         use sigstore_crypto::SigningScheme::*;
         let result: Result<()> = (|| {
@@ -306,30 +313,30 @@ impl sigstore_crypto::CryptoProvider for RustCryptoProvider {
                     p384::ecdsa::VerifyingKey::from_sec1_bytes(key)?
                         .verify_prehash(digest, &p384::ecdsa::Signature::from_der(signature)?)?
                 }
-                RsaPkcs1Sha256 => {
-                    rsa::pkcs1v15::VerifyingKey::<Sha256>::new(RsaPublicKey::from_pkcs1_der(key)?)
-                        .verify_prehash(digest, &rsa::pkcs1v15::Signature::try_from(signature)?)?
-                }
-                RsaPkcs1Sha384 => {
-                    rsa::pkcs1v15::VerifyingKey::<Sha384>::new(RsaPublicKey::from_pkcs1_der(key)?)
-                        .verify_prehash(digest, &rsa::pkcs1v15::Signature::try_from(signature)?)?
-                }
-                RsaPkcs1Sha512 => {
-                    rsa::pkcs1v15::VerifyingKey::<Sha512>::new(RsaPublicKey::from_pkcs1_der(key)?)
-                        .verify_prehash(digest, &rsa::pkcs1v15::Signature::try_from(signature)?)?
-                }
-                RsaPssSha256 => {
-                    rsa::pss::VerifyingKey::<Sha256>::new(RsaPublicKey::from_pkcs1_der(key)?)
-                        .verify_prehash(digest, &rsa::pss::Signature::try_from(signature)?)?
-                }
-                RsaPssSha384 => {
-                    rsa::pss::VerifyingKey::<Sha384>::new(RsaPublicKey::from_pkcs1_der(key)?)
-                        .verify_prehash(digest, &rsa::pss::Signature::try_from(signature)?)?
-                }
-                RsaPssSha512 => {
-                    rsa::pss::VerifyingKey::<Sha512>::new(RsaPublicKey::from_pkcs1_der(key)?)
-                        .verify_prehash(digest, &rsa::pss::Signature::try_from(signature)?)?
-                }
+                RsaPkcs1Sha256 => rsa::pkcs1v15::VerifyingKey::<rsa::sha2::Sha256>::new(
+                    RsaPublicKey::from_pkcs1_der(key)?,
+                )
+                .verify_prehash(digest, &rsa::pkcs1v15::Signature::try_from(signature)?)?,
+                RsaPkcs1Sha384 => rsa::pkcs1v15::VerifyingKey::<rsa::sha2::Sha384>::new(
+                    RsaPublicKey::from_pkcs1_der(key)?,
+                )
+                .verify_prehash(digest, &rsa::pkcs1v15::Signature::try_from(signature)?)?,
+                RsaPkcs1Sha512 => rsa::pkcs1v15::VerifyingKey::<rsa::sha2::Sha512>::new(
+                    RsaPublicKey::from_pkcs1_der(key)?,
+                )
+                .verify_prehash(digest, &rsa::pkcs1v15::Signature::try_from(signature)?)?,
+                RsaPssSha256 => rsa::pss::VerifyingKey::<rsa::sha2::Sha256>::new(
+                    RsaPublicKey::from_pkcs1_der(key)?,
+                )
+                .verify_prehash(digest, &rsa::pss::Signature::try_from(signature)?)?,
+                RsaPssSha384 => rsa::pss::VerifyingKey::<rsa::sha2::Sha384>::new(
+                    RsaPublicKey::from_pkcs1_der(key)?,
+                )
+                .verify_prehash(digest, &rsa::pss::Signature::try_from(signature)?)?,
+                RsaPssSha512 => rsa::pss::VerifyingKey::<rsa::sha2::Sha512>::new(
+                    RsaPublicKey::from_pkcs1_der(key)?,
+                )
+                .verify_prehash(digest, &rsa::pss::Signature::try_from(signature)?)?,
                 _ => bail!("unsupported Sigstore algorithm"),
             }
             Ok(())

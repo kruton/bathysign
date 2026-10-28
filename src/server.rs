@@ -49,7 +49,7 @@ async fn webhook(
     headers: HeaderMap,
     body: Bytes,
 ) -> std::result::Result<(StatusCode, Json<Value>), (StatusCode, &'static str)> {
-    use hmac::{Hmac, Mac};
+    use hmac::{Hmac, KeyInit, Mac};
     use sha2::Sha256;
     let mut observation = crate::metrics::Stage::new("webhook");
     let supplied = headers
@@ -209,9 +209,9 @@ pub async fn serve_tls(
     }
 }
 pub async fn run(loaded: Loaded) -> Result<()> {
-    use rand::RngCore;
+    use rand::TryRng;
     let mut entropy = [0; 32];
-    rand::rngs::OsRng.try_fill_bytes(&mut entropy)?;
+    rand::rngs::SysRng.try_fill_bytes(&mut entropy)?;
     ensure!(entropy.iter().any(|b| *b != 0), "entropy unavailable");
     let ledger = Ledger::new(&loaded.config)?;
     let dynamic = loaded.config.trust_authority.is_some();
@@ -477,7 +477,7 @@ mod diagnostic_tests {
 #[cfg(test)]
 mod webhook_tests {
     use super::*;
-    use hmac::{Hmac, Mac};
+    use hmac::{Hmac, KeyInit, Mac};
     use sha2::Sha256;
 
     fn headers(body: &[u8], secret: &[u8]) -> HeaderMap {

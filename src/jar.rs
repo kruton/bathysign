@@ -4,6 +4,8 @@ use crate::{
 };
 use anyhow::{Result, ensure};
 use base64::{Engine, engine::general_purpose::STANDARD};
+// CMS 0.2 uses DER 0.7; standalone certificates use DER 0.8.
+use cms::cert::x509::der::{Decode as _, Encode as _};
 use der::{Decode, Encode};
 use sha2::{Digest, Sha256};
 
@@ -63,8 +65,8 @@ fn cms(sf: &[u8], key: &SigningKey) -> Result<Vec<u8>> {
     let signer = seq(&[
         version.clone(),
         seq(&[
-            cert.tbs_certificate.issuer.to_der()?,
-            cert.tbs_certificate.serial_number.to_der()?,
+            cert.tbs_certificate().issuer().to_der()?,
+            cert.tbs_certificate().serial_number().to_der()?,
         ]),
         algorithm(SHA256_OID),
         algorithm(RSA_OID),

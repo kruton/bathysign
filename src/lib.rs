@@ -36,9 +36,9 @@ pub fn initialize_crypto() -> anyhow::Result<()> {
         let rdseed = maximum >= 7 && std::arch::x86_64::__cpuid_count(7, 0).ebx & (1 << 18) != 0;
         anyhow::ensure!(rdseed, "RDSEED is required for secure Hermit entropy");
     }
-    use rand::RngCore;
+    use rand::TryRng;
     let mut entropy = zeroize::Zeroizing::new([0u8; 32]);
-    rand::rngs::OsRng.try_fill_bytes(entropy.as_mut())?;
+    rand::rngs::SysRng.try_fill_bytes(entropy.as_mut())?;
     anyhow::ensure!(
         entropy.iter().any(|b| *b != 0),
         "secure entropy unavailable"
