@@ -39,7 +39,7 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn("tools: python java", ci)
         for name in ("bathysign-attest.yml", "bathysign-finalize.yml", "bathysign-publish.yml", "bathysign-ci.yml"):
             workflow = (ROOT / ".github/workflows" / name).read_text()
-            self.assertEqual(set(re.findall(r"runs-on: (.+)", workflow)), {"ubuntu-24.04"})
+            self.assertEqual(set(re.findall(r"runs-on: (.+)", workflow)), {"ubuntu-26.04"})
 
     def test_publishers_verify_before_google_authentication_and_route_testing_tracks(self):
         workflow = (ROOT / ".github/workflows/bathysign-publish.yml").read_text()
@@ -73,7 +73,7 @@ class WorkflowTests(unittest.TestCase):
                           "setup-gradle@", "secrets:", "run-id:", "repository:",
                           "artifact-ids:", "pattern:", "merge-multiple:", "continue-on-error:"):
             self.assertNotIn(forbidden, workflow)
-        self.assertIn("runs-on: ubuntu-24.04", job)
+        self.assertIn("runs-on: ubuntu-26.04", job)
         self.assertIn("github.event_name == 'push'", job)
         for artifact in ("unsigned", "release-support", "provenance"):
             self.assertIn("name: " + artifact + "-${{ inputs.profile }}-${{ github.run_attempt }}", job)
