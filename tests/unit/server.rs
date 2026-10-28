@@ -452,7 +452,7 @@ async fn provisioning_exposes_no_operational_signing_routes() {
     let certificate = directory.path().join("cert.pem");
     let key = directory.path().join("key.pem");
     std::fs::write(&certificate, identity.cert.pem()).unwrap();
-    std::fs::write(&key, identity.key_pair.serialize_pem()).unwrap();
+    std::fs::write(&key, identity.signing_key.serialize_pem()).unwrap();
     let socket = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     let address = socket.local_addr().unwrap();
     drop(socket);
