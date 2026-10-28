@@ -5,25 +5,26 @@ import pathlib
 import subprocess
 import sys
 import tempfile
-from release import inventory
+from release import archive, inventory
 
 root, tag, commit = pathlib.Path(sys.argv[1]), sys.argv[2], sys.argv[3]
 with tempfile.TemporaryDirectory() as temporary:
     stage = pathlib.Path(temporary)
+    verification = {'VERIFY.md': pathlib.Path(__file__).resolve().parents[1] / 'docs/releases.md'}
     for directory in sorted(root.iterdir()):
         target = json.loads((directory / 'inputs.json').read_text())['target']
-        for file in directory.rglob("*"):
-            if not file.is_file():
-                continue
-            name = file.name if file.name.endswith('.tar.gz') else target + '-' + file.name
-            (stage / name).write_bytes(file.read_bytes())
+        for file in directory.glob('*.tar.gz'):
+            (stage / file.name).write_bytes(file.read_bytes())
+        for name in ('inputs.json', 'reproducibility.json', 'sbom.spdx.json', 'sbom-attestation.json', 'provenance.json'):
+            verification[target + '/' + name] = directory / name
     evidence = pathlib.Path(sys.argv[4])
     for file in sorted(evidence.rglob('*')):
         if file.is_file():
             if file.name != 'evidence-provenance.json':
                 subprocess.run(['gh', 'attestation', 'verify', str(file), '--bundle', str(evidence / 'evidence-provenance.json'), '--repo', 'kruton/bathysign', '--signer-workflow', 'kruton/bathysign/.github/workflows/release-container.yml', '--source-digest', commit, '--signer-digest', commit, '--source-ref', 'refs/tags/' + tag, '--deny-self-hosted-runners'], check=True)
-            name = 'container-' + str(file.relative_to(evidence)).replace('/', '-')
-            (stage / name).write_bytes(file.read_bytes())
+            if file.suffix == '.json':
+                verification['containers/' + file.relative_to(evidence).as_posix()] = file
+    archive(stage / f'bathysign-{tag.removeprefix("v")}-verification.tar.gz', verification, 0)
     files = inventory(stage)
     (stage / 'SHA256SUMS').write_text(''.join(f'{digest}  {name}\n' for name, digest in files.items()))
     result = subprocess.run(['gh', 'release', 'view', tag, '--json', 'targetCommitish,isPrerelease'], capture_output=True, text=True)
@@ -39,5 +40,22 @@ with tempfile.TemporaryDirectory() as temporary:
         # A read failure is never treated as permission to overwrite existing assets.
         subprocess.run(['gh', 'release', 'create', tag, '--verify-tag', '--target', commit,
                         '--prerelease', '--title', 'Bathysign ' + tag,
-                        '--notes', 'Rebuilt twice on fresh GitHub-hosted runners. See verification documentation and per-target provenance bundles.',
+                        '--notes', f'''Choose your downloads:
+
+| Download | Use |
+| --- | --- |
+| `bathysign-{tag.removeprefix('v')}-x86_64-unknown-hermit.tar.gz` | Signing appliance and boot loader for an x86_64 virtual machine. |
+| `bathysign-{tag.removeprefix('v')}-x86_64-unknown-linux-gnu.tar.gz` | Administration tool and collector for AMD64 Linux. |
+| `bathysign-{tag.removeprefix('v')}-aarch64-unknown-linux-gnu.tar.gz` | Administration tool and collector for ARM64 Linux. |
+| `bathysign-{tag.removeprefix('v')}-verification.tar.gz` | Optional attestations, SBOMs, source-input metadata and reproducibility reports. |
+| `SHA256SUMS` | Download integrity checks; authenticate binaries with GitHub attestations before use. |
+
+For a typical installation, download the appliance and the tools for your host architecture. Host tools require Debian 13 or a compatible glibc environment.
+
+The collector is also available for AMD64 and ARM64 as `ghcr.io/kruton/bathysign-collector:{tag}`. Use the registry image rather than downloading an OCI archive; verify its attestation and deploy by digest.
+
+[Installation](https://github.com/kruton/bathysign/blob/{commit}/deploy/proxmox/README.md) · [Collector container](https://github.com/kruton/bathysign/blob/{commit}/deploy/collector/README.md) · [Verification and rebuilding](https://github.com/kruton/bathysign/blob/{commit}/docs/releases.md)
+
+Binary archives were rebuilt twice on fresh GitHub-hosted runners and compared byte for byte. Source commit: `{commit}`. Offline builder images and fetched dependency caches are retained as Actions artifacts, subject to retention limits, and are unnecessary for installation.
+''',
                         *map(str, sorted(stage.iterdir()))], check=True)

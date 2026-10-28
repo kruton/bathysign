@@ -4,6 +4,18 @@ Version tags matching Cargo metadata and belonging to main trigger prereleases. 
 
 Downloads include the x86_64 Hermit appliance/loader and AMD64/ARM64 Linux host tools. Host binaries target Debian 13 or compatible glibc environments. The collector container is published at `ghcr.io/kruton/bathysign-collector:vVERSION`; deploy by digest. Mount configuration, TLS credentials and persistent SQLite storage as described in `deploy/collector/README.md`.
 
+## Choose a download
+
+For a typical installation, download the appliance and one host-tools archive:
+
+| Filename suffix | Contents |
+| --- | --- |
+| `x86_64-unknown-hermit.tar.gz` | Signing appliance and Hermit boot loader for an x86_64 VM. |
+| `x86_64-unknown-linux-gnu.tar.gz` | AMD64 Linux administration tool and collector. |
+| `aarch64-unknown-linux-gnu.tar.gz` | ARM64 Linux administration tool and collector. |
+
+The release also provides `SHA256SUMS` and an optional `bathysign-VERSION-verification.tar.gz` with per-target provenance, SBOM attestations, SPDX documents, input metadata and reproducibility reports, plus container verification evidence. Extract this bundle to use the paths below. Its bundled attestations authenticate the original subjects; authenticate archives against the expected source and builder identities rather than trusting checksums or the bundle's filename. Container images are distributed through GHCR. Builder images, dependency caches and raw OCI archives remain Actions artifacts and are unnecessary for installation.
+
 ## Authenticate a download
 
 Obtain the expected source commit and version through a trusted channel. Use a recent GitHub CLI supporting source and signer digest checks:
@@ -16,7 +28,7 @@ gh attestation verify bathysign-VERSION-x86_64-unknown-linux-gnu.tar.gz \
   --source-ref refs/tags/vVERSION --deny-self-hosted-runners
 ```
 
-For offline verification add `--bundle x86_64-unknown-linux-gnu-provenance.json` and `--custom-trusted-root` pointing to trust roots obtained independently. Checksums alone do not authenticate a download. `scripts/verify-release.py` checks the complete three-target artifact set and its attested comparison reports; it expects the per-target directory layout produced by Actions downloads.
+For offline verification add `--bundle x86_64-unknown-linux-gnu/provenance.json` from the extracted verification bundle and `--custom-trusted-root` pointing to trust roots obtained independently. Checksums alone do not authenticate a download. `scripts/verify-release.py` checks the complete three-target artifact set and its attested comparison reports; it expects the per-target directory layout produced by Actions downloads. To use it with release downloads, extract the verification bundle and place each binary archive inside its matching target directory; pass a directory containing only those three target directories.
 
 ## Authenticate a container
 
@@ -50,7 +62,7 @@ The intended architecture follows GitHub's reusable-workflow guidance for SLSA B
 
 The source-built loader is pinned to upstream v0.5.7's immutable commit. Compiler binaries, the prebuilt Hermit standard library, builder OS packages and runtime base image remain upstream trust inputs. Rebuilding these inputs from source is outside the release claim.
 
-This pipeline requires a successful real tagged run before being considered operational. Offline builder and fetched-input archives are split into parts below GitHub’s asset size limit and attested with the other downloads. Verify each part before concatenation. Reconstruct the per-target offline directory and run `scripts/rebuild-offline.sh BUNDLE_DIRECTORY EMPTY_WORK_DIRECTORY TARGET`. The multi-platform index is assembled twice from verified OCI blobs and checked against the published registry digest. SPDX documents are included as provenance-authenticated release assets and separately attested against the binary archives and container index. Public GHCR package visibility must be configured in GitHub. First publication must be checked through public downloads and registry access.
+Offline builder and fetched-input archives are kept in the release run's `offline-TARGET-ATTEMPT` and `verified-TARGET-ATTEMPT` Actions artifacts, subject to repository artifact retention. They are not GitHub Release downloads. Save these artifacts separately if you need long-term offline rebuilding; after expiry, rebuild using the authenticated source and pinned upstream inputs as described above. The offline archives are split into parts and attested. Obtain the target's `provenance.json` from the verification bundle or verified artifact, and verify every part with the same source/builder constraints before concatenation. Reconstruct the per-target offline directory and run `scripts/rebuild-offline.sh BUNDLE_DIRECTORY EMPTY_WORK_DIRECTORY TARGET`. The multi-platform index is assembled twice from verified OCI blobs and checked against the published registry digest. SPDX documents are included in the verification bundle and separately attested against the binary archives and container index. Public GHCR package visibility must be configured in GitHub. First publication must be checked through public downloads and registry access.
 
 ## Sonar release gate
 
