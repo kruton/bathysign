@@ -15,6 +15,8 @@ a = p.parse_args()
 if not (a.secrets / "config.json").is_file():
     p.error("Secret export must contain config.json")
 virtiofsd = shutil.which("virtiofsd") or "/usr/libexec/virtiofsd"
+if "--readonly" not in subprocess.check_output([virtiofsd, "--help"], text=True).split():
+    p.error("virtiofsd must support --readonly (version 1.13 or later required)")
 with tempfile.TemporaryDirectory(prefix="bathysign-qemu-") as temporary:
     socket = pathlib.Path(temporary) / "fs.sock"
     daemon = subprocess.Popen([virtiofsd, "--socket-path=" + str(socket), "--shared-dir=" + str(a.secrets.resolve()), "--readonly", "--sandbox=" + ("none" if a.test_unsandboxed_fs else "namespace")])

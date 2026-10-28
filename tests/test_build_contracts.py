@@ -138,7 +138,7 @@ class KernelPreparationContracts(unittest.TestCase):
 
 
 class GuestLaunchContracts(unittest.TestCase):
-    def launch(self, root, arguments=(), daemon_ready=True, daemon_status=None, wait_timeout=False):
+    def launch(self, root, arguments=(), daemon_ready=True, daemon_status=None, wait_timeout=False, daemon_help='--readonly --sandbox --socket-path --shared-dir'):
         secret = root / 'secrets'
         secret.mkdir(exist_ok=True)
         (secret / 'config.json').write_text('{}')
@@ -154,7 +154,7 @@ class GuestLaunchContracts(unittest.TestCase):
                 Path(socket).touch()
             return daemon
 
-        with mock.patch.object(sys, 'argv', ['run-qemu', '--secrets', str(secret), *arguments]), mock.patch.object(subprocess, 'Popen', side_effect=start), mock.patch.object(subprocess, 'call', return_value=0) as guest, mock.patch('time.sleep'), contextlib.redirect_stderr(io.StringIO()):
+        with mock.patch.object(sys, 'argv', ['run-qemu', '--secrets', str(secret), *arguments]), mock.patch.object(subprocess, 'check_output', return_value=daemon_help), mock.patch.object(subprocess, 'Popen', side_effect=start), mock.patch.object(subprocess, 'call', return_value=0) as guest, mock.patch('time.sleep'), contextlib.redirect_stderr(io.StringIO()):
             try:
                 runpy.run_path(str(ROOT / 'scripts/run-qemu.py'), run_name='__main__')
             except SystemExit as error:
@@ -190,6 +190,14 @@ class GuestLaunchContracts(unittest.TestCase):
                 self.assertIn(message, str(error))
                 guest.assert_not_called()
                 daemon.terminate.assert_called_once()
+
+    def test_daemon_without_readonly_support_cannot_export_secrets_or_boot_guest(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            error, observed, guest, daemon = self.launch(Path(temporary), daemon_help='--sandbox --socket-path --shared-dir')
+            self.assertEqual(error.code, 2)
+            self.assertEqual(observed, [])
+            guest.assert_not_called()
+            daemon.terminate.assert_not_called()
 
     def test_missing_configuration_never_starts_a_daemon(self):
         with tempfile.TemporaryDirectory() as temporary:

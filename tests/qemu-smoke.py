@@ -21,13 +21,14 @@ with tempfile.TemporaryDirectory(prefix="bathysign-smoke-") as temporary:
     for name in ["app", "apk", "upload", "transparency", "receipt", "ca", "tls"]:
         run(["openssl","genpkey","-algorithm","RSA","-pkeyopt","rsa_keygen_bits:2048","-out",secret/(name+".key.pem")])
         args=["openssl","req","-new","-x509","-key",secret/(name+".key.pem"),"-out",secret/(name+".pem"),"-days","2","-subj","/CN=Local-test-"+name]
-        if name=="ca": args += ["-addext","basicConstraints=critical,CA:TRUE"]
+        if name=="ca": args += ["-addext","basicConstraints=critical,CA:TRUE","-addext","keyUsage=critical,keyCertSign,cRLSign"]
         if name=="tls":
             run(["openssl","req","-new","-key",secret/"tls.key.pem","-out",secret/"tls.csr","-subj","/CN=localhost"])
             extensions=secret/"tls.ext"
             extensions.write_text("subjectAltName=DNS:localhost,IP:127.0.0.1,IP:10.0.2.2\nbasicConstraints=critical,CA:FALSE\nextendedKeyUsage=serverAuth\n")
             run(["openssl","x509","-req","-in",secret/"tls.csr","-CA",secret/"ca.pem","-CAkey",secret/"ca.key.pem","-CAcreateserial","-out",secret/"tls.pem","-days","2","-extfile",extensions])
         else: run(args)
+    subprocess.run(["openssl","verify","-x509_strict","-purpose","sslserver","-CAfile",secret/"ca.pem",secret/"tls.pem"],check=True)
     (secret/"audit-token").write_text("test-audit-"+os.urandom(32).hex())
     webhook=os.urandom(32);(secret/"webhook-secret").write_bytes(webhook)
     run([a.admin,"init","--key",secret/"apk.key.pem","--cert",secret/"apk.pem","--out",secret/"lineage.bin"])
@@ -58,7 +59,7 @@ with tempfile.TemporaryDirectory(prefix="bathysign-smoke-") as temporary:
     processes=[]
     try:
         with (d/"collector.log").open("w") as log:
-            processes.append(subprocess.Popen([ROOT/"target/debug/bathysign-collector"],env={**os.environ,"BATHYSIGN_COLLECTOR_CONFIG":str(collector_file)},stdout=log,stderr=log,start_new_session=True))
+            processes.append(subprocess.Popen([a.collector],env={**os.environ,"BATHYSIGN_COLLECTOR_CONFIG":str(collector_file)},stdout=log,stderr=log,start_new_session=True))
         guest_log=d/"guest.log"
         with guest_log.open("w") as log:
             args=["python3",ROOT/"scripts/run-qemu.py","--secrets",secret,"--loader",a.loader,"--image",a.image,"--port","18444","--memory","1G","--test-unsandboxed-fs"]
@@ -82,14 +83,16 @@ with tempfile.TemporaryDirectory(prefix="bathysign-smoke-") as temporary:
                 assert db.execute("SELECT count(*) FROM trust_heads").fetchone()[0]==0
             print("PASS: health remains available and trust cannot initialize itself",flush=True)
             subprocess.run([str(a.collector),"initialize-trust",str(a.trust_checkpoint.resolve())],env={**os.environ,"BATHYSIGN_COLLECTOR_CONFIG":str(collector_file)},check=True)
+        readiness_error=None
         for _ in range(720 if a.trust_checkpoint else 120):
             try:
                 with urllib.request.urlopen("https://localhost:18444/readyz",context=context,timeout=2) as r:
                     if r.status==200: break
-            except Exception: pass
+            except Exception as error: readiness_error=error
+            if processes[0].poll() is not None: raise RuntimeError("Collector stopped with status "+str(processes[0].returncode))
             if processes[-1].poll() is not None: raise RuntimeError("Guest stopped: "+guest_log.read_text()[-8000:])
             time.sleep(.5)
-        else: raise RuntimeError("Guest did not become ready: "+guest_log.read_text()[-8000:])
+        else: raise RuntimeError("Guest did not become ready ("+str(readiness_error)+"): "+guest_log.read_text()[-8000:])
         body=b"{}"
         def post(signature, data=body, event="ping"):
             result=subprocess.run(["curl","--silent","--show-error","--max-time",str(request_timeout),"--cacert",str(secret/"ca.pem"),"--output","/dev/null","--write-out","%{http_code}","--header","Content-Type: application/json","--header","X-GitHub-Event: "+event,"--header","X-Hub-Signature-256: sha256="+signature,"--data-binary","@-","https://localhost:18444/webhooks/github"],input=data,capture_output=True,check=True)
