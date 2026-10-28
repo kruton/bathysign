@@ -460,11 +460,10 @@ async fn provisioning_exposes_no_operational_signing_routes() {
     std::fs::write(&path, serde_json::to_vec(&json!({"listen":address.to_string(),"tls_certificate":certificate,"tls_private_key":key})).unwrap()).unwrap();
     let config_path = path.clone();
     let server = tokio::spawn(async move { provisioning(&config_path).await.unwrap() });
-    let client = reqwest::Client::builder()
+    let client = crate::network::client_builder()
+        .unwrap()
         .no_proxy()
-        .add_root_certificate(
-            reqwest::Certificate::from_pem(identity.cert.pem().as_bytes()).unwrap(),
-        )
+        .tls_certs_merge([reqwest::Certificate::from_pem(identity.cert.pem().as_bytes()).unwrap()])
         .build()
         .unwrap();
     let origin = format!("https://localhost:{}", address.port());
@@ -481,6 +480,17 @@ async fn provisioning_exposes_no_operational_signing_routes() {
             Err(error) => panic!("provisioning TLS failure: {error}"),
         }
     }
+    assert!(
+        crate::network::client_builder()
+            .unwrap()
+            .no_proxy()
+            .build()
+            .unwrap()
+            .get(format!("{origin}/healthz"))
+            .send()
+            .await
+            .is_err()
+    );
     assert_eq!(
         ready
             .expect("provisioning server did not start")
