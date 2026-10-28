@@ -4,7 +4,7 @@ use anyhow::{Result, ensure};
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use rsa::signature::{RandomizedSigner, SignatureEncoding};
 use serde_json::{Value, json};
-use sha2::Sha256;
+
 #[derive(Clone)]
 pub struct Github {
     client: reqwest::Client,
@@ -114,8 +114,8 @@ impl Github {
             &json!({"iat":issued-30,"exp":issued+540,"iss":config.github_app_id}),
         )?);
         let input = format!("{header}.{payload}");
-        let sig = rsa::pkcs1v15::SigningKey::<Sha256>::new(key)
-            .try_sign_with_rng(&mut rand::rngs::OsRng, input.as_bytes())?;
+        let sig = rsa::pkcs1v15::SigningKey::<rsa::sha2::Sha256>::new(key)
+            .try_sign_with_rng(&mut rsa::rand_core::OsRng, input.as_bytes())?;
         Ok(Self {
             client,
             token: format!("{input}.{}", URL_SAFE_NO_PAD.encode(sig.to_vec())),

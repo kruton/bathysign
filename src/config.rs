@@ -466,8 +466,8 @@ impl Loaded {
                     for old in &cl.nodes[..cl.nodes.len() - 1] {
                         use der::{Decode, Encode};
                         let old = x509_cert::Certificate::from_der(&old.certificate)?
-                            .tbs_certificate
-                            .subject_public_key_info
+                            .tbs_certificate()
+                            .subject_public_key_info()
                             .to_der()?;
                         ensure!(
                             old != c.spki()? && old != p.spki()?,
@@ -486,7 +486,7 @@ impl Loaded {
                 ) {
                     use der::{Decode, Encode};
                     let cert = x509_cert::Certificate::from_der(&node.certificate)?;
-                    let history_spki = cert.tbs_certificate.subject_public_key_info.to_der()?;
+                    let history_spki = cert.tbs_certificate().subject_public_key_info().to_der()?;
                     ensure!(
                         receipt_spki != history_spki,
                         "receipt key shares Android signing history"
@@ -692,7 +692,7 @@ mod tests {
         );
         let make_key = |bits, label| SigningKey {
             private: PrivateKey::Rsa(Box::new(
-                rsa::RsaPrivateKey::new(&mut rand::rngs::OsRng, bits).unwrap(),
+                rsa::RsaPrivateKey::new(&mut rsa::rand_core::OsRng, bits).unwrap(),
             )),
             certificate: vec![label],
         };

@@ -473,7 +473,7 @@ async fn app_jwt_is_signed_with_the_configured_identity_and_short_expiry() {
     use rsa::pkcs8::EncodePrivateKey;
     use rsa::signature::Verifier;
     crate::initialize_test_crypto();
-    let key = rsa::RsaPrivateKey::new(&mut rand::rngs::OsRng, 2048).unwrap();
+    let key = rsa::RsaPrivateKey::new(&mut rsa::rand_core::OsRng, 2048).unwrap();
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("app.pem");
     std::fs::write(
@@ -505,7 +505,7 @@ async fn app_jwt_is_signed_with_the_configured_identity_and_short_expiry() {
     let signature =
         rsa::pkcs1v15::Signature::try_from(URL_SAFE_NO_PAD.decode(parts[2]).unwrap().as_slice())
             .unwrap();
-    rsa::pkcs1v15::VerifyingKey::<Sha256>::new(key.to_public_key())
+    rsa::pkcs1v15::VerifyingKey::<rsa::sha2::Sha256>::new(key.to_public_key())
         .verify(format!("{}.{}", parts[0], parts[1]).as_bytes(), &signature)
         .unwrap();
     std::fs::write(&config.github_app_private_key, b"not a key").unwrap();

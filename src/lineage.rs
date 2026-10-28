@@ -136,7 +136,7 @@ impl Lineage {
         use der::Encode;
         use rsa::{pkcs8::DecodePublicKey, traits::PublicKeyParts};
         let cert = x509_cert::Certificate::from_der(certificate)?;
-        let spki = &cert.tbs_certificate.subject_public_key_info;
+        let spki = cert.tbs_certificate().subject_public_key_info();
         let next_algorithm = match spki.algorithm.oid.to_string().as_str() {
             "1.2.840.113549.1.1.1" => {
                 let key = rsa::RsaPublicKey::from_public_key_der(&spki.to_der()?)?;
