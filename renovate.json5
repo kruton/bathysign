@@ -1,0 +1,15 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended",
+  ],
+  "packageRules": [
+    {
+      "description": "Keep Sigstore crates on the same Git revision to avoid incompatible duplicate types.",
+      "matchManagers": ["cargo"],
+      "matchPackageNames": ["https://github.com/sigstore/sigstore-rust"],
+      "groupName": "sigstore",
+      "groupSlug": "sigstore",
+    },
+  ],
+}
