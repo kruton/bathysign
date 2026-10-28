@@ -2233,8 +2233,8 @@ dependencies = [
 
 [[package]]
 name = "sigstore-bundle"
-version = "0.15.0"
-source = "git+https://github.com/sigstore/sigstore-rust?rev=f950b1b683560aadf7737539f8d7eaa656a9f0c0#f950b1b683560aadf7737539f8d7eaa656a9f0c0"
+version = "0.15.1"
+source = "git+https://github.com/sigstore/sigstore-rust?rev=e441356183ffd664ffe559721a08d9414c9d8c2d#e441356183ffd664ffe559721a08d9414c9d8c2d"
 dependencies = [
  "jiff",
  "sigstore-types",
@@ -2243,8 +2243,8 @@ dependencies = [
 
 [[package]]
 name = "sigstore-crypto"
-version = "0.15.0"
-source = "git+https://github.com/sigstore/sigstore-rust?rev=f950b1b683560aadf7737539f8d7eaa656a9f0c0#f950b1b683560aadf7737539f8d7eaa656a9f0c0"
+version = "0.15.1"
+source = "git+https://github.com/sigstore/sigstore-rust?rev=e441356183ffd664ffe559721a08d9414c9d8c2d#e441356183ffd664ffe559721a08d9414c9d8c2d"
 dependencies = [
  "const-oid 0.9.6",
  "der 0.7.10",
@@ -2259,8 +2259,8 @@ dependencies = [
 
 [[package]]
 name = "sigstore-merkle"
-version = "0.15.0"
-source = "git+https://github.com/sigstore/sigstore-rust?rev=f950b1b683560aadf7737539f8d7eaa656a9f0c0#f950b1b683560aadf7737539f8d7eaa656a9f0c0"
+version = "0.15.1"
+source = "git+https://github.com/sigstore/sigstore-rust?rev=e441356183ffd664ffe559721a08d9414c9d8c2d#e441356183ffd664ffe559721a08d9414c9d8c2d"
 dependencies = [
  "sigstore-crypto",
  "sigstore-types",
@@ -2269,8 +2269,8 @@ dependencies = [
 
 [[package]]
 name = "sigstore-rekor"
-version = "0.15.0"
-source = "git+https://github.com/sigstore/sigstore-rust?rev=f950b1b683560aadf7737539f8d7eaa656a9f0c0#f950b1b683560aadf7737539f8d7eaa656a9f0c0"
+version = "0.15.1"
+source = "git+https://github.com/sigstore/sigstore-rust?rev=e441356183ffd664ffe559721a08d9414c9d8c2d#e441356183ffd664ffe559721a08d9414c9d8c2d"
 dependencies = [
  "base64 0.23.1",
  "hex",
@@ -2284,8 +2284,8 @@ dependencies = [
 
 [[package]]
 name = "sigstore-trust-root"
-version = "0.15.0"
-source = "git+https://github.com/sigstore/sigstore-rust?rev=f950b1b683560aadf7737539f8d7eaa656a9f0c0#f950b1b683560aadf7737539f8d7eaa656a9f0c0"
+version = "0.15.1"
+source = "git+https://github.com/sigstore/sigstore-rust?rev=e441356183ffd664ffe559721a08d9414c9d8c2d#e441356183ffd664ffe559721a08d9414c9d8c2d"
 dependencies = [
  "jiff",
  "serde",
@@ -2297,8 +2297,8 @@ dependencies = [
 
 [[package]]
 name = "sigstore-tsa"
-version = "0.15.0"
-source = "git+https://github.com/sigstore/sigstore-rust?rev=f950b1b683560aadf7737539f8d7eaa656a9f0c0#f950b1b683560aadf7737539f8d7eaa656a9f0c0"
+version = "0.15.1"
+source = "git+https://github.com/sigstore/sigstore-rust?rev=e441356183ffd664ffe559721a08d9414c9d8c2d#e441356183ffd664ffe559721a08d9414c9d8c2d"
 dependencies = [
  "cms",
  "const-oid 0.9.6",
@@ -2316,8 +2316,8 @@ dependencies = [
 
 [[package]]
 name = "sigstore-tuf"
-version = "0.15.0"
-source = "git+https://github.com/sigstore/sigstore-rust?rev=f950b1b683560aadf7737539f8d7eaa656a9f0c0#f950b1b683560aadf7737539f8d7eaa656a9f0c0"
+version = "0.15.1"
+source = "git+https://github.com/sigstore/sigstore-rust?rev=e441356183ffd664ffe559721a08d9414c9d8c2d#e441356183ffd664ffe559721a08d9414c9d8c2d"
 dependencies = [
  "glob",
  "hex",
@@ -2333,8 +2333,8 @@ dependencies = [
 
 [[package]]
 name = "sigstore-types"
-version = "0.15.0"
-source = "git+https://github.com/sigstore/sigstore-rust?rev=f950b1b683560aadf7737539f8d7eaa656a9f0c0#f950b1b683560aadf7737539f8d7eaa656a9f0c0"
+version = "0.15.1"
+source = "git+https://github.com/sigstore/sigstore-rust?rev=e441356183ffd664ffe559721a08d9414c9d8c2d#e441356183ffd664ffe559721a08d9414c9d8c2d"
 dependencies = [
  "base64 0.23.1",
  "hex",
@@ -2347,8 +2347,8 @@ dependencies = [
 
 [[package]]
 name = "sigstore-verify"
-version = "0.15.0"
-source = "git+https://github.com/sigstore/sigstore-rust?rev=f950b1b683560aadf7737539f8d7eaa656a9f0c0#f950b1b683560aadf7737539f8d7eaa656a9f0c0"
+version = "0.15.1"
+source = "git+https://github.com/sigstore/sigstore-rust?rev=e441356183ffd664ffe559721a08d9414c9d8c2d#e441356183ffd664ffe559721a08d9414c9d8c2d"
 dependencies = [
  "base64 0.23.1",
  "const-oid 0.9.6",
