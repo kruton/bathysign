@@ -38,7 +38,7 @@ hex = "0.4"
 hmac = "0.12"
 http = "1"
 hyper = { version = "1", features = ["server", "http1"] }
-hyper-util = { version = "=0.1.14", features = ["server", "tokio", "service"] }
+hyper-util = { version = "=0.1.21", features = ["server", "tokio", "service"] }
 ml-dsa = { version = "=0.1.1", features = ["zeroize"] }
 p256 = { version = "0.13", features = ["ecdsa"] }
 p384 = { version = "0.13", features = ["ecdsa"] }
