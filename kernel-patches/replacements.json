@@ -206,5 +206,10 @@
     "before": "\t\tif len < 0 {\n\t\t\treturn len;\n\t\t}\n\n\t\twritten_bytes += len;",
     "after": "\t\tif len < 0 {\n\t\t\t// Report progress before a later error; callers must not retry bytes\n\t\t\t// already transferred (notably TLS records under backpressure).\n\t\t\treturn if written_bytes > 0 { written_bytes } else { len };\n\t\t}\n\n\t\twritten_bytes += len;",
     "reason": "Preserve partial vectored I/O progress when a later buffer returns an error."
+  },
+  {
+    "file": "src/fs/mod.rs",
+    "before": "\tconst UTC_BUILT_TIME: &str = build_time::build_time_utc!();",
+    "after": "\t// Use the same SOURCE_DATE_EPOCH-aware metadata as the startup banner.\n\tconst UTC_BUILT_TIME: &str = crate::built_info::BUILT_TIME_UTC;"
   }
 ]

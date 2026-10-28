@@ -15,6 +15,10 @@ the old fallback warning.
 - Entropy: fail stop if secure entropy cannot be read. The upstream syscall
   substituted a predictable Park-Miller generator. The application also checks
   real CPUID because the Rust Hermit target assumes RDSEED at compile time.
+- Build timestamp: use the kernel's existing `built_info::BUILT_TIME_UTC` for
+  `/proc/version`, matching the startup banner. This metadata honors
+  `SOURCE_DATE_EPOCH`; upstream's separate `build_time_utc!()` macro embeds the
+  wall-clock compilation time and makes otherwise identical binaries differ.
 - TCP connect: bound the kernel's synchronous connect to 15 seconds. Hyper's
   Hermit connector performs it in a Tokio blocking task and propagates errors.
 - TCP drop: abort nonblocking connections rather than waiting for the peer from
