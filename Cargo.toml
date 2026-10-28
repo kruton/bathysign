@@ -45,7 +45,7 @@ p384 = { version = "0.14", features = ["ecdsa"] }
 rand = "0.10"
 reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls-webpki-roots-no-provider"] }
 rsa = { version = "0.9", features = ["sha2"] }
-rusqlite = { version = "0.37", features = ["bundled"], optional = true }
+rusqlite = { version = "0.41", features = ["bundled"], optional = true }
 rustls = { version = "0.23", default-features = false, features = ["std", "tls12"] }
 rustls-pemfile = "2"
 rustls-rustcrypto = "=0.0.2-alpha"

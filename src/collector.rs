@@ -1,6 +1,6 @@
 //! Durable, authenticated external ledger. Compiled only for the host collector.
 use crate::ledger::{Activation, Claimed, Job};
-use anyhow::{Result, ensure};
+use anyhow::{Context, Result, ensure};
 use axum::{
     Json, Router,
     extract::{Path, State},
@@ -25,6 +25,23 @@ pub struct CollectorConfig {
     pub tls_private_key: std::path::PathBuf,
     pub token_file: std::path::PathBuf,
     pub database: std::path::PathBuf,
+}
+// SQLite INTEGER is signed; keep unsigned domain values out of SQL bindings.
+fn sql_integer(value: u64) -> Result<i64> {
+    i64::try_from(value).context("integer exceeds SQLite range")
+}
+fn unsigned_column(row: &rusqlite::Row<'_>, index: usize) -> rusqlite::Result<u64> {
+    let value: i64 = row.get(index)?;
+    u64::try_from(value).map_err(|error| {
+        rusqlite::Error::FromSqlConversionFailure(
+            index,
+            rusqlite::types::Type::Integer,
+            Box::new(error),
+        )
+    })
+}
+fn deadline(now: u64, delay: u64) -> Result<i64> {
+    sql_integer(now.checked_add(delay).context("deadline overflow")?)
 }
 fn rejected(_: anyhow::Error) -> (StatusCode, &'static str) {
     (StatusCode::CONFLICT, "ledger operation rejected")
@@ -144,6 +161,8 @@ impl Store {
         Ok(())
     }
     pub fn activate(&self, a: &Activation) -> Result<()> {
+        let repository_id = sql_integer(a.repository_id)?;
+        let revision = sql_integer(a.revision)?;
         ensure!(
             a.repository_id > 0 && a.revision > 0 && valid_hash(&a.policy_hash),
             "invalid activation"
@@ -169,7 +188,7 @@ impl Store {
         let prior: Option<String> = tx
             .query_row(
                 "SELECT body FROM policies WHERE repo=?1",
-                [a.repository_id],
+                [repository_id],
                 |r| r.get(0),
             )
             .optional()?;
@@ -195,7 +214,7 @@ impl Store {
             }
             let stale = {
                 let mut q = tx.prepare("SELECT id FROM jobs WHERE repo=?1 AND policy != ?2 AND status IN ('pending','running')")?;
-                q.query_map(params![a.repository_id, a.policy_hash], |r| {
+                q.query_map(params![repository_id, a.policy_hash], |r| {
                     r.get::<_, String>(0)
                 })?
                 .collect::<std::result::Result<Vec<_>, _>>()?
@@ -213,7 +232,7 @@ impl Store {
                 )?;
             }
         }
-        tx.execute("INSERT INTO policies(repo,revision,hash,body) VALUES(?1,?2,?3,?4) ON CONFLICT(repo) DO UPDATE SET revision=excluded.revision,hash=excluded.hash,body=excluded.body",params![a.repository_id,a.revision,a.policy_hash,serde_json::to_string(a)?])?;
+        tx.execute("INSERT INTO policies(repo,revision,hash,body) VALUES(?1,?2,?3,?4) ON CONFLICT(repo) DO UPDATE SET revision=excluded.revision,hash=excluded.hash,body=excluded.body",params![repository_id,revision,a.policy_hash,serde_json::to_string(a)?])?;
         tx.commit()?;
         Ok(())
     }
@@ -247,8 +266,8 @@ impl Store {
         let tx = db.transaction()?;
         let active: (u64, String) = tx.query_row(
             "SELECT revision,hash FROM policies WHERE repo=?1",
-            [job.repository_id],
-            |r| Ok((r.get(0)?, r.get(1)?)),
+            [sql_integer(job.repository_id)?],
+            |r| Ok((unsigned_column(r, 0)?, r.get(1)?)),
         )?;
         ensure!(
             active == (job.revision, job.policy_hash.clone()),
@@ -256,7 +275,7 @@ impl Store {
         );
         let policy_body: String = tx.query_row(
             "SELECT body FROM policies WHERE repo=?1",
-            [job.repository_id],
+            [sql_integer(job.repository_id)?],
             |r| r.get(0),
         )?;
         let policy: Activation = serde_json::from_str(&policy_body)?;
@@ -278,7 +297,7 @@ impl Store {
             "INSERT INTO jobs(id,repo,policy,body) VALUES(?1,?2,?3,?4)",
             params![
                 job.id,
-                job.repository_id,
+                sql_integer(job.repository_id)?,
                 job.policy_hash,
                 serde_json::to_string(job)?
             ],
@@ -299,7 +318,7 @@ impl Store {
             let mut q = tx.prepare(
                 "SELECT id FROM jobs WHERE status='running' AND lease_until < ?1 AND attempts >= 6",
             )?;
-            q.query_map([now], |r| r.get::<_, String>(0))?
+            q.query_map([sql_integer(now)?], |r| r.get::<_, String>(0))?
                 .collect::<std::result::Result<Vec<_>, _>>()?
         };
         for id in exhausted {
@@ -320,7 +339,7 @@ impl Store {
                 [id],
             )?;
         }
-        let row:Option<(String,String,u64,String)>=tx.query_row("SELECT j.id,j.body,j.attempts,j.status FROM jobs j JOIN policies p ON p.repo=j.repo AND p.hash=j.policy WHERE j.status IN ('pending','running') AND j.lease_until < ?1 AND j.retry_after <= ?1 AND j.attempts < 6 ORDER BY j.rowid LIMIT 1",[now],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?))).optional()?;
+        let row:Option<(String,String,u64,String)>=tx.query_row("SELECT j.id,j.body,j.attempts,j.status FROM jobs j JOIN policies p ON p.repo=j.repo AND p.hash=j.policy WHERE j.status IN ('pending','running') AND j.lease_until < ?1 AND j.retry_after <= ?1 AND j.attempts < 6 ORDER BY j.rowid LIMIT 1",[sql_integer(now)?],|r|Ok((r.get(0)?,r.get(1)?,unsigned_column(r, 2)?,r.get(3)?))).optional()?;
         let Some((id, body, attempt, status)) = row else {
             tx.commit()?;
             return Ok(None);
@@ -328,7 +347,7 @@ impl Store {
         let mut bytes = [0; 32];
         rand::rngs::SysRng.try_fill_bytes(&mut bytes)?;
         let lease = hex::encode(bytes);
-        tx.execute("UPDATE jobs SET status='running',lease=?1,lease_until=?2,attempts=attempts+1 WHERE id=?3",params![lease,now+300,id])?;
+        tx.execute("UPDATE jobs SET status='running',lease=?1,lease_until=?2,attempts=attempts+1 WHERE id=?3",params![lease,deadline(now, 300)?,id])?;
         if status == "running" {
             append(
                 &tx,
@@ -356,7 +375,7 @@ impl Store {
         append(&tx, id, kind, data)?;
         tx.execute(
             "UPDATE jobs SET lease_until=?1 WHERE id=?2",
-            params![crate::config::now()? + 300, id],
+            params![deadline(crate::config::now()?, 300)?, id],
         )?;
         tx.commit()?;
         Ok(())
@@ -372,8 +391,9 @@ impl Store {
             .map_err(|_| anyhow::anyhow!("ledger lock failed"))?;
         let tx = db.transaction()?;
         check_lease(&tx, id, lease)?;
-        let attempts: u64 =
-            tx.query_row("SELECT attempts FROM jobs WHERE id=?1", [id], |r| r.get(0))?;
+        let attempts: u64 = tx.query_row("SELECT attempts FROM jobs WHERE id=?1", [id], |r| {
+            unsigned_column(r, 0)
+        })?;
         let state = if status == "retry" && attempts < 6 {
             "pending"
         } else if status == "retry" {
@@ -389,7 +409,16 @@ impl Store {
         )?;
         tx.execute(
             "UPDATE jobs SET status=?1,lease=NULL,lease_until=0,retry_after=?2 WHERE id=?3",
-            params![state, crate::config::now()? + 30 * attempts, id],
+            params![
+                state,
+                deadline(
+                    crate::config::now()?,
+                    30u64
+                        .checked_mul(attempts)
+                        .context("retry delay overflow")?
+                )?,
+                id
+            ],
         )?;
         tx.commit()?;
         Ok(())
@@ -406,7 +435,7 @@ impl Store {
         for status in ["pending", "running", "complete", "rejected"] {
             let count: u64 =
                 db.query_row("SELECT count(*) FROM jobs WHERE status=?1", [status], |r| {
-                    r.get(0)
+                    unsigned_column(r, 0)
                 })?;
             out.push_str(&format!(
                 "bathysign_ledger_jobs{{status=\"{status}\"}} {count}\n"
@@ -414,12 +443,13 @@ impl Store {
         }
         let expired: u64 = db.query_row(
             "SELECT count(*) FROM jobs WHERE status='running' AND lease_until < ?1",
-            [now],
-            |r| r.get(0),
+            [sql_integer(now)?],
+            |r| unsigned_column(r, 0),
         )?;
         out.push_str(&format!("# HELP bathysign_ledger_expired_leases Running jobs with expired leases.\n# TYPE bathysign_ledger_expired_leases gauge\nbathysign_ledger_expired_leases {expired}\n"));
         // Event timestamps are immutable, including across lease renewal/retries.
-        let oldest: Option<u64> = db.query_row("SELECT min(CAST(json_extract(e.body,'$.time') AS INTEGER)) FROM events e JOIN jobs j ON j.id=e.job WHERE e.kind='job.accepted' AND j.status IN ('pending','running')", [], |r| r.get(0))?;
+        let oldest: Option<i64> = db.query_row("SELECT min(CAST(json_extract(e.body,'$.time') AS INTEGER)) FROM events e JOIN jobs j ON j.id=e.job WHERE e.kind='job.accepted' AND j.status IN ('pending','running')", [], |r| r.get::<_, Option<i64>>(0))?;
+        let oldest = oldest.map(u64::try_from).transpose()?;
         let age = oldest.map(|t| now.saturating_sub(t)).unwrap_or(0);
         out.push_str(&format!("# HELP bathysign_ledger_oldest_unfinished_seconds Age of oldest unfinished job, zero when empty.\n# TYPE bathysign_ledger_oldest_unfinished_seconds gauge\nbathysign_ledger_oldest_unfinished_seconds {age}\n"));
         out.push_str("# HELP bathysign_ledger_events_total Durable task milestones and failures.\n# TYPE bathysign_ledger_events_total counter\n");
@@ -437,7 +467,7 @@ impl Store {
         ] {
             let count: u64 =
                 db.query_row("SELECT count(*) FROM events WHERE kind=?1", [kind], |r| {
-                    r.get(0)
+                    unsigned_column(r, 0)
                 })?;
             out.push_str(&format!(
                 "bathysign_ledger_events_total{{kind=\"{kind}\"}} {count}\n"
@@ -456,7 +486,7 @@ impl Store {
             })?;
         let mut q =
             db.prepare("SELECT seq,kind,body,previous,hash FROM events WHERE job=?1 ORDER BY seq")?;
-        let events=q.query_map([id],|r|Ok(json!({"sequence":r.get::<_,u64>(0)?,"kind":r.get::<_,String>(1)?,"body":serde_json::from_str::<Value>(&r.get::<_,String>(2)?).unwrap_or(Value::Null),"previous":r.get::<_,String>(3)?,"hash":r.get::<_,String>(4)?})))?.collect::<std::result::Result<Vec<_>,_>>()?;
+        let events=q.query_map([id],|r|Ok(json!({"sequence":unsigned_column(r, 0)?,"kind":r.get::<_,String>(1)?,"body":serde_json::from_str::<Value>(&r.get::<_,String>(2)?).unwrap_or(Value::Null),"previous":r.get::<_,String>(3)?,"hash":r.get::<_,String>(4)?})))?.collect::<std::result::Result<Vec<_>,_>>()?;
         Ok(json!({"job":serde_json::from_str::<Value>(&body)?,"status":status,"events":events}))
     }
 }
@@ -466,7 +496,7 @@ fn valid_hash(s: &str) -> bool {
             .all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())
 }
 fn check_lease(tx: &rusqlite::Transaction<'_>, id: &str, lease: &str) -> Result<()> {
-    let (actual,until,status,policy,active):(Option<String>,u64,String,String,String)=tx.query_row("SELECT j.lease,j.lease_until,j.status,j.policy,p.hash FROM jobs j JOIN policies p ON p.repo=j.repo WHERE j.id=?1",[id],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?)))?;
+    let (actual,until,status,policy,active):(Option<String>,u64,String,String,String)=tx.query_row("SELECT j.lease,j.lease_until,j.status,j.policy,p.hash FROM jobs j JOIN policies p ON p.repo=j.repo WHERE j.id=?1",[id],|r|Ok((r.get(0)?,unsigned_column(r, 1)?,r.get(2)?,r.get(3)?,r.get(4)?)))?;
     ensure!(
         actual.as_deref() == Some(lease)
             && until >= crate::config::now()?
@@ -481,17 +511,20 @@ fn append(tx: &rusqlite::Transaction<'_>, job: &str, kind: &str, data: Value) ->
         .query_row(
             "SELECT seq,hash FROM events WHERE job=?1 ORDER BY seq DESC LIMIT 1",
             [job],
-            |r| Ok((r.get(0)?, r.get(1)?)),
+            |r| Ok((unsigned_column(r, 0)?, r.get(1)?)),
         )
         .optional()?;
-    let (seq, previous) = prior.map(|(s, h)| (s + 1, h)).unwrap_or((1, String::new()));
+    let (seq, previous) = match prior {
+        Some((s, h)) => (s.checked_add(1).context("event sequence overflow")?, h),
+        None => (1, String::new()),
+    };
     let body = serde_json::to_string(&json!({"time":crate::config::now()?,"data":data}))?;
     let hash = crate::sha256(&serde_json::to_vec(&json!([
         job, seq, kind, &body, &previous
     ]))?);
     tx.execute(
         "INSERT INTO events(job,seq,kind,body,previous,hash) VALUES(?1,?2,?3,?4,?5,?6)",
-        params![job, seq, kind, body, previous, hash],
+        params![job, sql_integer(seq)?, kind, body, previous, hash],
     )?;
     Ok(())
 }
@@ -620,6 +653,107 @@ pub fn router(store: Store) -> Router {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn sqlite_integer_boundaries_and_corrupt_values() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(&dir.path().join("ledger.sqlite"), &[1; 32]).unwrap();
+        let max = u64::try_from(i64::MAX).unwrap();
+        let mut activation = Activation {
+            version: 2,
+            repository_id: max,
+            revision: max,
+            policy_hash: "a".repeat(64),
+            profiles: std::collections::BTreeMap::from([(
+                "default".into(),
+                crate::ledger::History {
+                    classical_history: vec!["b".repeat(64)],
+                    hybrid_history: vec![],
+                },
+            )]),
+        };
+        store.activate(&activation).unwrap();
+        activation.repository_id = max + 1;
+        assert!(store.activate(&activation).is_err());
+        activation.repository_id = max;
+        activation.revision = max + 1;
+        assert!(store.activate(&activation).is_err());
+        let mut job = Job {
+            version: 2,
+            profile: "default".into(),
+            id: crate::ledger::profile_job_id(max, 2, 1, "default", &activation.policy_hash),
+            repository_id: max,
+            run_id: 2,
+            attempt: 1,
+            commit: "c".repeat(40),
+            policy_hash: activation.policy_hash.clone(),
+            revision: max,
+        };
+        store.enqueue(&job).unwrap();
+        job.repository_id = max + 1;
+        job.id =
+            crate::ledger::profile_job_id(job.repository_id, 2, 1, "default", &job.policy_hash);
+        assert!(store.enqueue(&job).is_err());
+        let claimed = store.claim().unwrap().unwrap();
+        {
+            let mut db = store.db.lock().unwrap();
+            assert_eq!(
+                db.query_row("SELECT ?1", [sql_integer(0).unwrap()], |r| unsigned_column(
+                    r, 0
+                ))
+                .unwrap(),
+                0
+            );
+            assert!(
+                db.query_row("SELECT -1", [], |r| unsigned_column(r, 0))
+                    .is_err()
+            );
+            db.execute("UPDATE policies SET revision=-1", []).unwrap();
+
+            db.execute(
+                "UPDATE events SET seq=?1 WHERE seq=(SELECT max(seq) FROM events)",
+                [i64::MAX],
+            )
+            .unwrap();
+            let tx = db.transaction().unwrap();
+            assert!(append(&tx, &claimed.job.id, "test", json!({})).is_err());
+        }
+        assert_eq!(
+            store.inspect(&claimed.job.id).unwrap()["events"][1]["sequence"],
+            max
+        );
+        assert!(store.enqueue(&claimed.job).is_err());
+        store
+            .db
+            .lock()
+            .unwrap()
+            .execute("UPDATE events SET seq=2 WHERE seq=?1", [i64::MAX])
+            .unwrap();
+        store
+            .db
+            .lock()
+            .unwrap()
+            .execute("UPDATE jobs SET attempts=-1", [])
+            .unwrap();
+        assert!(
+            store
+                .finish(&claimed.job.id, &claimed.lease, "retry")
+                .is_err()
+        );
+        store
+            .db
+            .lock()
+            .unwrap()
+            .execute("UPDATE jobs SET lease_until=-1", [])
+            .unwrap();
+        assert!(
+            store
+                .event(&claimed.job.id, &claimed.lease, "test", json!({}))
+                .is_err()
+        );
+        assert_eq!(deadline(max - 300, 300).unwrap(), i64::MAX);
+        assert!(deadline(max, 1).is_err());
+        assert!(deadline(u64::MAX, 1).is_err());
+    }
     #[test]
     fn profile_history_is_preserved_and_stale_jobs_are_rejected() {
         use crate::ledger::{History, profile_job_id};
