@@ -53,10 +53,10 @@ impl Ledger {
 
     pub fn new(config: &Config) -> Result<Self> {
         let ca = reqwest::Certificate::from_pem(&std::fs::read(&config.audit_ca_certificate)?)?;
-        let client = reqwest::Client::builder()
+        let client = crate::network::client_builder()?
             .https_only(true)
             .redirect(reqwest::redirect::Policy::none())
-            .add_root_certificate(ca)
+            .tls_certs_merge([ca])
             .timeout(std::time::Duration::from_secs(30))
             .build()?;
         let token = read_secret(&config.audit_token)?;

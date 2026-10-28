@@ -101,7 +101,7 @@ impl Github {
         decode_bundle(&bounded(response, BUNDLE_LIMIT).await?, compressed)
     }
     pub async fn connect(config: &Config) -> Result<Self> {
-        let client = reqwest::Client::builder()
+        let client = crate::network::client_builder()?
             .https_only(true)
             .redirect(reqwest::redirect::Policy::none())
             .timeout(std::time::Duration::from_secs(300))

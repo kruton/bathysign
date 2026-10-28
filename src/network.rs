@@ -1,5 +1,14 @@
 //! Retry safe reads only. Writes recover through the durable job retry protocol.
 use std::time::{Duration, Instant};
+// Keep the bundled Mozilla roots on Hermit; reqwest 0.13 defaults to the
+// platform verifier, where an operating-system certificate store is required.
+pub fn client_builder() -> anyhow::Result<reqwest::ClientBuilder> {
+    let roots = webpki_root_certs::TLS_SERVER_ROOT_CERTS
+        .iter()
+        .map(|cert| reqwest::Certificate::from_der(cert.as_ref()))
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(reqwest::Client::builder().tls_certs_only(roots))
+}
 pub trait SendMonitored {
     async fn send_monitored(self) -> Result<reqwest::Response, reqwest::Error>;
 }

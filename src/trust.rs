@@ -427,7 +427,7 @@ impl HttpRepository {
         Ok(Self {
             recording,
             mirror: MIRROR.into(),
-            client: reqwest::Client::builder()
+            client: crate::network::client_builder()?
                 .https_only(true)
                 .redirect(reqwest::redirect::Policy::none())
                 .timeout(std::time::Duration::from_secs(30))
