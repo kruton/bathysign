@@ -61,7 +61,7 @@ sigstore-trust-root = { git = "https://github.com/sigstore/sigstore-rust", rev =
 sigstore-verify = { git = "https://github.com/sigstore/sigstore-rust", rev = "e441356183ffd664ffe559721a08d9414c9d8c2d", default-features = false }
 subtle = "2"
 tokio = { version = "=1.45.0", features = ["rt", "macros", "net", "time", "sync", "io-util", "fs"] }
-tokio-util = { version = "=0.7.15", default-features = false }
+tokio-util = { version = "=0.7.20", default-features = false }
 tokio-rustls = { version = "0.26", default-features = false, features = ["tls12"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
