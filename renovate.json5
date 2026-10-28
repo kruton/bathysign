@@ -5,6 +5,18 @@
   ],
   "packageRules": [
     {
+      "description": "Update Tokio and tokio-util together with the Hermit Tokio fork.",
+      "matchManagers": ["cargo"],
+      "matchPackageNames": [
+        "tokio",
+        "tokio-util",
+        "https://github.com/hermit-os/tokio",
+      ],
+      "groupName": "tokio dependencies",
+      "groupSlug": "tokio",
+      "separateMajorMinor": false,
+    },
+    {
       "description": "Keep Sigstore crates on the same Git revision to avoid incompatible duplicate types.",
       "matchManagers": ["cargo"],
       "matchPackageNames": ["https://github.com/sigstore/sigstore-rust"],
