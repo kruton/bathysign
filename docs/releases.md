@@ -34,6 +34,8 @@ Each architecture is built twice with isolated BuildKit instances. Comparisons i
 
 Check out the authenticated source commit. Build `deploy/build/Dockerfile`, then invoke `scripts/release-build.sh TARGET prepare` in that container with `/src` containing the checkout and persistent Cargo/rustup volumes. This fetches inputs, warms nested build dependencies, and removes compiled outputs. Invoke the same script with `TARGET` on the same mounts with `--network none`, `CARGO_NET_OFFLINE=true` and `BATHYSIGN_OFFLINE_BUILD=1`. CI records these exact commands in `release-build.yml`.
 
+The builder links `/root/.cargo` and `/root/.rustup` to `/usr/local/cargo` and `/usr/local/rustup`, respectively. Hermit's nested kernel build clears the home override variables, so these aliases keep its toolchain and dependency lookups on the same persistent caches in both phases and in exported offline bundles.
+
 Repeat on a clean machine. Compare the resulting directories with:
 
 ```sh
