@@ -265,7 +265,7 @@ dependencies = [
  "sigstore-crypto",
  "sigstore-trust-root",
  "sigstore-tuf",
- "sigstore-types",
+ "sigstore-types 0.15.1",
  "sigstore-verify",
  "snap",
  "subtle",
@@ -2237,7 +2237,7 @@ version = "0.15.0"
 source = "git+https://github.com/sigstore/sigstore-rust?rev=f950b1b683560aadf7737539f8d7eaa656a9f0c0#f950b1b683560aadf7737539f8d7eaa656a9f0c0"
 dependencies = [
  "jiff",
- "sigstore-types",
+ "sigstore-types 0.15.0",
  "thiserror",
 ]
 
@@ -2251,7 +2251,7 @@ dependencies = [
  "futures-io",
  "jiff",
  "rustls-pki-types",
- "sigstore-types",
+ "sigstore-types 0.15.0",
  "spki 0.7.3",
  "thiserror",
  "x509-cert",
@@ -2263,7 +2263,7 @@ version = "0.15.0"
 source = "git+https://github.com/sigstore/sigstore-rust?rev=f950b1b683560aadf7737539f8d7eaa656a9f0c0#f950b1b683560aadf7737539f8d7eaa656a9f0c0"
 dependencies = [
  "sigstore-crypto",
- "sigstore-types",
+ "sigstore-types 0.15.0",
  "thiserror",
 ]
 
@@ -2278,7 +2278,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sigstore-merkle",
- "sigstore-types",
+ "sigstore-types 0.15.0",
  "thiserror",
 ]
 
@@ -2291,7 +2291,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sigstore-crypto",
- "sigstore-types",
+ "sigstore-types 0.15.0",
  "thiserror",
 ]
 
@@ -2308,7 +2308,7 @@ dependencies = [
  "rustls-pki-types",
  "rustls-webpki 0.103.15",
  "sigstore-crypto",
- "sigstore-types",
+ "sigstore-types 0.15.0",
  "thiserror",
  "tracing",
  "x509-cert",
@@ -2325,7 +2325,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sigstore-crypto",
- "sigstore-types",
+ "sigstore-types 0.15.0",
  "tempfile",
  "thiserror",
  "tracing",
@@ -2335,6 +2335,20 @@ dependencies = [
 name = "sigstore-types"
 version = "0.15.0"
 source = "git+https://github.com/sigstore/sigstore-rust?rev=f950b1b683560aadf7737539f8d7eaa656a9f0c0#f950b1b683560aadf7737539f8d7eaa656a9f0c0"
+dependencies = [
+ "base64 0.23.1",
+ "hex",
+ "jiff",
+ "pem 4.0.0",
+ "serde",
+ "serde_json",
+ "thiserror",
+]
+
+[[package]]
+name = "sigstore-types"
+version = "0.15.1"
+source = "git+https://github.com/sigstore/sigstore-rust?rev=e441356183ffd664ffe559721a08d9414c9d8c2d#e441356183ffd664ffe559721a08d9414c9d8c2d"
 dependencies = [
  "base64 0.23.1",
  "hex",
@@ -2366,7 +2380,7 @@ dependencies = [
  "sigstore-rekor",
  "sigstore-trust-root",
  "sigstore-tsa",
- "sigstore-types",
+ "sigstore-types 0.15.0",
  "thiserror",
  "tls_codec",
  "tracing",
