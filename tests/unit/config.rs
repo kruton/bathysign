@@ -473,7 +473,12 @@ fn workflow_release_pins_are_exported_and_bound_to_policy_hash() {
     changed.finalizer.commit = changed.builder.commit.clone();
     assert_ne!(hash, loaded.policy_hash(&changed).unwrap());
     changed = original.clone();
-    changed.builder.refs = vec!["refs/tags/v0.2.2".into()];
+    let alternate_ref = if original.builder.refs == ["refs/tags/v999.0.0"] {
+        "refs/tags/v998.0.0"
+    } else {
+        "refs/tags/v999.0.0"
+    };
+    changed.builder.refs = vec![alternate_ref.into()];
     changed.finalizer.refs = changed.builder.refs.clone();
     assert_ne!(hash, loaded.policy_hash(&changed).unwrap());
     changed = original.clone();
