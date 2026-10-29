@@ -38,6 +38,7 @@ def verify(data, receipt, authority):
             and authority['bootstrap_sha256'] == hashlib.sha256(root).hexdigest(), 'bootstrap differs')
     trusted = TrustedMetadataSet(root, EnvelopeType.METADATA)
     role_bytes = {}
+    snapshot_raw = None
     total = 0
     last = 0
     require(len(checkpoint['observations']) <= 16384, 'trust history too large')
@@ -64,15 +65,24 @@ def verify(data, receipt, authority):
                 require(trusted.root.version == version, 'root filename differs')
                 root = raw
                 role_bytes.clear()
+                snapshot_raw = None
         elif name == 'timestamp.json':
+            previous = dict(trusted._trusted_set)
             previous_snapshot = trusted.get('snapshot')
             trusted._trusted_set = {k: v for k, v in trusted._trusted_set.items() if k in ('root', 'timestamp')}
             trusted.update_timestamp(raw)
             if previous_snapshot is not None:
                 trusted._trusted_set['snapshot'] = previous_snapshot
+                if trusted.timestamp.snapshot_meta.version == previous_snapshot.version:
+                    # A timestamp-only refresh retains descendants only after
+                    # authenticating the cached snapshot under the new timestamp.
+                    trusted.update_snapshot(snapshot_raw)
+                    trusted._trusted_set.update({k: v for k, v in previous.items()
+                                                 if k not in ('root', 'timestamp', 'snapshot')})
         elif name == 'snapshot.json':
             trusted._trusted_set = {k: v for k, v in trusted._trusted_set.items() if k in ('root', 'timestamp', 'snapshot')}
             trusted.update_snapshot(raw)
+            snapshot_raw = raw
             role_bytes.clear()
         elif name == 'targets.json':
             trusted.update_targets(raw)

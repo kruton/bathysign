@@ -18,6 +18,25 @@ class TrustEvidenceTests(unittest.TestCase):
     def test_offline_evidence_matches_rust_binding(self):
         self.assertEqual(verifier.verify(self.raw, {'trust':self.binding}, self.checkpoint['authority']), self.binding)
 
+    def test_timestamp_only_refresh_retains_authenticated_targets(self):
+        raw = (ROOT / 'tests/fixtures/trust-timestamp-refresh.json').read_bytes()
+        binding = json.loads((ROOT / 'tests/fixtures/trust-timestamp-refresh-binding.json').read_bytes())
+        authority = json.loads(raw)['authority']
+        self.assertEqual(verifier.verify(raw, {'trust': binding}, authority), binding)
+
+    def test_timestamp_refresh_does_not_restore_missing_or_tampered_targets(self):
+        checkpoint = json.loads((ROOT / 'tests/fixtures/trust-timestamp-refresh.json').read_bytes())
+        binding = json.loads((ROOT / 'tests/fixtures/trust-timestamp-refresh-binding.json').read_bytes())
+        for missing in (True, False):
+            with self.subTest(missing=missing):
+                altered = copy.deepcopy(checkpoint)
+                if missing:
+                    altered['observations'] = [o for o in altered['observations'] if o['name'] != 'targets.json']
+                else:
+                    next(o for o in altered['observations'] if o['name'] == 'snapshot.json')['bytes'] = 'Y29ycnVwdA=='
+                with self.assertRaises(Exception):
+                    verifier.verify(json.dumps(altered).encode(), {'trust': binding}, altered['authority'])
+
     def test_publication_requires_provenance_to_use_the_authenticated_target(self):
         spec=importlib.util.spec_from_file_location('trust_release',ROOT/'scripts/signer-release.py')
         helper=importlib.util.module_from_spec(spec)
