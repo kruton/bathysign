@@ -118,3 +118,10 @@ The immutable v0.2.0 release exposed this mismatch during a genuine disposable
 signing trial. Do not move or replace its tag. Publish the corrected release,
 regenerate policies and increment their revisions, then run fresh source builds
 with the new workflow tag before the production cutover.
+
+## Timestamp-only trust refreshes
+
+Version 0.2.2 fixes offline verification of trust checkpoints that end with a
+timestamp refresh authorizing the existing snapshot. The verifier authenticates
+the cached snapshot against the new timestamp before retaining its targets.
+The disposable ConnectBot trial provides the regression fixture.
