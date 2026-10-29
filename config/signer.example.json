@@ -68,7 +68,7 @@
         "repository_id": 1436515323,
         "workflow": ".github/workflows/bathysign-attest.yml",
         "refs": [
-          "refs/tags/v0.2.1"
+          "refs/tags/v0.2.2"
         ],
         "commit": "cccccccccccccccccccccccccccccccccccccccc"
       },
@@ -99,7 +99,7 @@
         "repository_id": 1436515323,
         "workflow": ".github/workflows/bathysign-finalize.yml",
         "refs": [
-          "refs/tags/v0.2.1"
+          "refs/tags/v0.2.2"
         ],
         "commit": "cccccccccccccccccccccccccccccccccccccccc"
       },
