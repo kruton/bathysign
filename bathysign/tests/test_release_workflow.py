@@ -43,6 +43,21 @@ class ReleaseTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 release.final_predicate(policy, 42, 2, {"id": policy["repository_id"], "owner": {"id": 7}, "default_branch": "main"}, {}, [])
 
+    def test_annotated_final_predicate_records_source_commit_and_platform_digest(self):
+        policy = self.policy()
+        for name in ('builder', 'finalizer'): policy[name]['workflow_digest'] = 'a'*40
+        event = Path(self.tmp.name)/'annotated-dispatch.json'
+        event.write_text(release.json.dumps({'inputs':{'source_run':'42','source_attempt':'2'}}))
+        environment = {'GITHUB_EVENT_NAME':'workflow_dispatch','GITHUB_REF':'refs/heads/main','GITHUB_EVENT_PATH':str(event),'RUNNER_ENVIRONMENT':'github-hosted',
+            'GITHUB_WORKFLOW_REF':policy['repository']+'/.github/workflows/bathysign-release.yml@refs/heads/main','GITHUB_SHA':'c'*40,'GITHUB_RUN_ID':'99','GITHUB_RUN_ATTEMPT':'1',
+            'BATHYSIGN_JOB_WORKFLOW_REF':'example/workflows/.github/workflows/bathysign-finalize.yml@refs/tags/v0.2.0','BATHYSIGN_JOB_WORKFLOW_SHA':'a'*40}
+        with mock.patch.dict(release.os.environ, environment, clear=True), mock.patch.object(release, 'verify_workflow_identity'):
+            predicate = release.final_predicate(policy,42,2,{'id':policy['repository_id'],'owner':{'id':7},'default_branch':'main'},{},[])
+        internal = predicate['buildDefinition']['internalParameters']
+        self.assertEqual(internal['finalizerCommit'],policy['finalizer']['commit'])
+        self.assertEqual(internal['finalizerWorkflowDigest'],'a'*40)
+        self.assertEqual(predicate['buildDefinition']['resolvedDependencies'][1]['digest'],{'gitCommit':policy['finalizer']['commit']})
+
     def test_finalizer_recovery_requires_default_branch_context(self):
         for event, ref, permitted in [("workflow_run", "refs/heads/main", False), ("workflow_dispatch", "refs/heads/main", True), ("workflow_dispatch", "refs/heads/untrusted", False), ("push", "refs/heads/main", False)]:
             with mock.patch.dict(release.os.environ, {"GITHUB_EVENT_NAME": event, "GITHUB_REF": ref}, clear=True):
@@ -309,6 +324,14 @@ class ReleaseTests(unittest.TestCase):
             release.verify_provenance(artifact, bundle, policy, source, summary)
             with self.assertRaisesRegex(ValueError, 'builder commit differs from policy pin'):
                 release.verify_provenance(artifact, bundle, policy, source, {**summary, 'builder_commit':'a'*40})
+            for name in ('builder', 'finalizer'): policy[name]['workflow_digest'] = 'a'*40
+            annotated = {**summary, 'builder_workflow_digest':'a'*40}
+            certificate['buildSignerDigest'] = 'a'*40
+            release.verify_provenance(artifact, bundle, policy, source, annotated)
+            with self.assertRaisesRegex(ValueError, 'workflow digest differs'):
+                release.verify_provenance(artifact, bundle, policy, source, {**annotated, 'builder_workflow_digest':'b'*40})
+            for name in ('builder', 'finalizer'): policy[name].pop('workflow_digest')
+            certificate['buildSignerDigest'] = summary['builder_commit']
             certificate['runInvocationURI'] = uri+'/actions/runs/10/attempts/1'
             with self.assertRaisesRegex(ValueError, 'certificate claims differ'):
                 release.verify_provenance(artifact, bundle, policy, source, summary)

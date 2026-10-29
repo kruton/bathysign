@@ -96,7 +96,7 @@ class PolicyTests(unittest.TestCase):
             if annotated:
                 responses.append({'sha':'a'*40, 'object':commit})
             with mock.patch.object(p.r, 'api', side_effect=responses):
-                p.r.verify_workflow_identity(builder)
+                p.r.verify_workflow_identity({**builder, **({'workflow_digest':'a'*40} if annotated else {})})
         for responses in (
             [{'id':99, 'visibility':'public'}],
             [{**metadata, 'visibility':'private'}],
@@ -114,7 +114,7 @@ class PolicyTests(unittest.TestCase):
         responses = [metadata, release, ref({'type':'tag','sha':'0'*40})]
         responses.extend({'sha':str(i)*40,'object':{'type':'tag','sha':str(i+1)*40}} for i in range(8))
         with mock.patch.object(p.r, 'api', side_effect=responses), self.assertRaisesRegex(ValueError, 'depth exceeded'):
-            p.r.verify_workflow_identity(builder)
+            p.r.verify_workflow_identity({**builder, 'workflow_digest':'0'*40})
         with mock.patch.object(p.r, 'api', side_effect=RuntimeError('API unavailable')), self.assertRaises(RuntimeError):
             p.r.verify_workflow_identity(builder)
 
@@ -130,6 +130,30 @@ class PolicyTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             p.r.validate_policy({**self.policy, 'finalizer':{**self.policy['finalizer'], 'commit':'b'*40}})
         p.r.validate_workflow_identity({**identity(), 'refs':['refs/tags/v0.2.0-rc.1']})
+
+    def test_annotated_identity_requires_separate_matching_digest_pins(self):
+        for digest in ('', 'a'*39, 'A'*40, None):
+            with self.subTest(digest=digest), self.assertRaises(ValueError):
+                p.r.validate_workflow_identity({**identity(), 'workflow_digest':digest})
+        policy = json.loads(json.dumps(self.policy))
+        for workflow in ('builder', 'finalizer'):
+            policy[workflow]['workflow_digest'] = 'a'*40
+        p.r.validate_policy(policy)
+        finalizer = policy['finalizer']
+        uri = f"https://github.com/{finalizer['repository']}/{finalizer['workflow']}@{finalizer['refs'][0]}"
+        with mock.patch.object(p.r, 'verify_workflow_identity'):
+            self.assertEqual(p.r.verify_finalizer_certificate(policy, {'buildSignerURI':uri, 'buildSignerDigest':'a'*40}), (uri, finalizer['commit']))
+            with self.assertRaises(ValueError):
+                p.r.verify_finalizer_certificate(policy, {'buildSignerURI':uri, 'buildSignerDigest':finalizer['commit']})
+        policy['finalizer']['workflow_digest'] = 'b'*40
+        with self.assertRaises(ValueError): p.r.validate_policy(policy)
+        builder = {**identity(), 'workflow_digest':'a'*40}
+        responses = [{'id':builder['repository_id'], 'visibility':'public'},
+            {'tag_name':'v0.2.0', 'draft':False, 'immutable':True},
+            {'ref':builder['refs'][0], 'object':{'type':'tag', 'sha':'a'*40}},
+            {'sha':'a'*40, 'object':{'type':'commit', 'sha':'b'*40}}]
+        with mock.patch.object(p.r, 'api', side_effect=responses), self.assertRaisesRegex(ValueError, 'commit differs'):
+            p.r.verify_workflow_identity(builder)
 
     def test_finalizer_certificate_digest_must_match_policy(self):
         finalizer = self.policy['finalizer']

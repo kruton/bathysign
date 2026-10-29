@@ -78,6 +78,14 @@ pub struct Builder {
     pub workflow: String,
     pub refs: Vec<String>,
     pub commit: String,
+    /// GitHub's workflow SHA is the tag object for annotated release tags.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workflow_digest: Option<String>,
+}
+impl Builder {
+    pub fn workflow_digest(&self) -> &str {
+        self.workflow_digest.as_deref().unwrap_or(&self.commit)
+    }
 }
 impl Repository {
     pub fn allows_caller(&self, path: &str) -> bool {
@@ -99,7 +107,8 @@ impl Repository {
                 && self.builder.repository != self.name
                 && self.builder.refs.len() == 1
                 && release_ref(&self.builder.refs[0])
-                && valid_commit(&self.builder.commit),
+                && valid_commit(&self.builder.commit)
+                && valid_commit(self.builder.workflow_digest()),
             "a separate trusted builder with one exact release tag and commit pin is required; migrate branch policies"
         );
         ensure!(
@@ -108,7 +117,9 @@ impl Repository {
                 && workflow_path(&self.finalizer.workflow)
                 && self.finalizer.workflow != self.builder.workflow
                 && self.finalizer.refs == self.builder.refs
-                && self.finalizer.commit == self.builder.commit,
+                && self.finalizer.commit == self.builder.commit
+                && valid_commit(self.finalizer.workflow_digest())
+                && self.finalizer.workflow_digest() == self.builder.workflow_digest(),
             "a separate finalizer workflow in the same trusted repository, release tag and commit is required"
         );
         Ok(())

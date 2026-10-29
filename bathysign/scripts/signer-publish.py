@@ -278,6 +278,7 @@ def verify_handoff(root, expected_hash, policy_path):
     require(predicate["runDetails"]["builder"]["id"] == signer_uri
         and predicate["buildDefinition"]["internalParameters"]["finalizerCommit"] == signer_commit,
         "final predicate builder differs from platform certificate")
+    require(predicate["buildDefinition"]["internalParameters"].get("finalizerWorkflowDigest", signer_commit) == r.workflow_digest(finalizer), "final predicate workflow digest differs")
     invocation = f"https://github.com/{policy['repository']}/actions/runs/{producer['run_id']}/attempts/{producer['attempt']}"
     require(statement["predicateType"] == r.SLSA and predicate["buildDefinition"]["buildType"] == r.BUILD_TYPE
             and result["signature"]["certificate"]["runInvocationURI"] == invocation

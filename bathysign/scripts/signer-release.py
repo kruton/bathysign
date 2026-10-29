@@ -75,6 +75,10 @@ def allowed_ref(patterns, value):
                and "*" not in p[:-1] and value.startswith(p[:-1])) for p in patterns)
 
 
+def workflow_digest(builder):
+    return builder.get("workflow_digest", builder["commit"])
+
+
 def verify_workflow_identity(builder):
     validate_workflow_identity(builder)
     meta = api(f"repos/{builder['repository']}")
@@ -85,6 +89,7 @@ def verify_workflow_identity(builder):
         and release.get("immutable") is True, "trusted workflow release is not published and immutable")
     reference = api(f"repos/{builder['repository']}/git/ref/tags/{tag}")
     require(reference.get("ref") == builder["refs"][0], "trusted release tag differs")
+    require(reference["object"].get("sha") == workflow_digest(builder), "trusted workflow digest differs from policy pin")
     obj, seen = reference["object"], set()
     for depth in range(9):
         sha = obj.get("sha")
@@ -100,21 +105,23 @@ def verify_workflow_identity(builder):
 
 
 def validate_workflow_identity(builder):
-    require(set(builder) == {"repository", "repository_id", "workflow", "refs", "commit"}, "unsupported workflow policy fields: exact release tag and commit pin required; migrate branch policies")
+    required = {"repository", "repository_id", "workflow", "refs", "commit"}
+    require(required <= set(builder) <= required | {"workflow_digest"}, "unsupported workflow policy fields: exact release tag and commit pin required; migrate branch policies")
     require(re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", builder["repository"]), "invalid trusted repository")
     require(type(builder["repository_id"]) is int and builder["repository_id"] > 0, "invalid trusted repository ID")
     require(re.fullmatch(r"\.github/workflows/[A-Za-z0-9_-]+\.ya?ml", builder["workflow"]), "invalid trusted workflow")
     require(isinstance(builder["refs"], list) and len(builder["refs"]) == 1, "one exact trusted release tag required")
     require(isinstance(builder["refs"][0], str) and re.fullmatch(r"refs/tags/v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z.-]+)?", builder["refs"][0]), "invalid trusted release tag")
     require(valid_hash(builder["commit"], 40), "invalid trusted release commit pin")
+    require(valid_hash(workflow_digest(builder), 40), "invalid trusted workflow digest pin")
 
 
 def verify_finalizer_certificate(policy, certificate):
     finalizer = policy["finalizer"]
     verify_workflow_identity(finalizer)
     expected = f"https://github.com/{finalizer['repository']}/{finalizer['workflow']}@{finalizer['refs'][0]}"
-    require(certificate["buildSignerURI"] == expected and certificate["buildSignerDigest"] == finalizer["commit"], "final attestation builder differs")
-    return expected, certificate["buildSignerDigest"]
+    require(certificate["buildSignerURI"] == expected and certificate["buildSignerDigest"] == workflow_digest(finalizer), "final attestation builder differs")
+    return expected, finalizer["commit"]
 
 
 def validate_policy(policy):
@@ -133,6 +140,7 @@ def validate_policy(policy):
         validate_workflow_identity(workflow)
         require(workflow["repository"] != policy["repository"] and workflow["repository_id"] != policy["repository_id"], "trusted workflows must be separate from source")
     require(all(finalizer[k] == builder[k] for k in ("repository", "repository_id", "refs", "commit"))
+        and workflow_digest(finalizer) == workflow_digest(builder)
         and finalizer["workflow"] != builder["workflow"], "finalizer must be separate in the same trusted repository, release tag and commit")
     for name, profile in policy["profiles"].items():
         require(re.fullmatch(r"[a-z0-9-]{1,32}", name), "invalid profile")
@@ -202,10 +210,12 @@ def verify_provenance(path, bundle, policy, source_run, summary):
     require(digest(bundle.read_bytes()) == summary["bundle_sha256"], "upstream bundle differs")
     builder = policy["builder"]
     require(summary["builder_commit"] == builder["commit"], "builder commit differs from policy pin")
+    signer_digest = summary.get("builder_workflow_digest", summary["builder_commit"])
+    require(signer_digest == workflow_digest(builder), "builder workflow digest differs from policy pin")
     verified = load(run("gh", "attestation", "verify", path, "--bundle", bundle,
         "--repo", policy["repository"],
         "--signer-workflow", f"{builder['repository']}/{builder['workflow']}",
-        "--signer-digest", builder["commit"], "--source-digest", source_run["head_sha"],
+        "--signer-digest", signer_digest, "--source-digest", source_run["head_sha"],
         "--source-ref", summary["ref"], "--deny-self-hosted-runners", "--format", "json"))
     require(len(verified) == 1, "ambiguous verified provenance")
     result = verified[0]["verificationResult"]
@@ -221,7 +231,7 @@ def verify_provenance(path, bundle, policy, source_run, summary):
         "sourceRepositoryIdentifier": str(policy["repository_id"]), "sourceRepositoryDigest": source_run["head_sha"],
         "sourceRepositoryRef": workflow["ref"], "buildConfigURI": f"{uri}/{workflow['path']}@{workflow['ref']}",
         "buildConfigDigest": source_run["head_sha"], "buildSignerURI": summary["builder"],
-        "buildSignerDigest": summary["builder_commit"], "runInvocationURI": invocation,
+        "buildSignerDigest": signer_digest, "runInvocationURI": invocation,
         "runnerEnvironment": "github-hosted", "buildTrigger": source_run["event"],
         "sourceRepositoryVisibilityAtSigning": policy["visibility"]}
     require(all(cert.get(k) == v for k, v in expected.items()), "verified certificate claims differ")
@@ -549,14 +559,15 @@ def final_predicate(policy, source_run_id, source_attempt, metadata, summaries, 
     verify_workflow_identity(trusted)
     expected = f"{trusted['repository']}/{trusted['workflow']}@{trusted['refs'][0]}"
     require(os.environ.get("BATHYSIGN_JOB_WORKFLOW_REF") == expected, "untrusted finalizer job identity")
-    signer_commit = os.environ.get("BATHYSIGN_JOB_WORKFLOW_SHA", "")
-    require(signer_commit == trusted["commit"], "platform finalizer revision differs from policy pin")
+    signer_digest = os.environ.get("BATHYSIGN_JOB_WORKFLOW_SHA", "")
+    require(signer_digest == workflow_digest(trusted), "platform finalizer revision differs from policy pin")
+    signer_commit = trusted["commit"]
     signer_uri = "https://github.com/" + expected
     dependencies = [{"uri": f"git+https://github.com/{trusted['repository']}@{trusted['refs'][0]}", "digest": {"gitCommit": signer_commit}}, *dependencies]
     # GitHub's attestation API requires its workflow source as the first entry.
     dependencies = [{"uri": f"git+{repository_uri}@{os.environ['GITHUB_REF']}", "digest": {"gitCommit": os.environ["GITHUB_SHA"]}}, *dependencies]
     github = {"event_name": "workflow_dispatch", "repository_id": str(metadata["id"]), "repository_owner_id": str(metadata["owner"]["id"]), "runner_environment": "github-hosted"}
-    return {"buildDefinition": {"buildType": BUILD_TYPE, "externalParameters": {"workflow": {"repository": repository_uri, "ref": os.environ["GITHUB_REF"], "path": ".github/workflows/bathysign-release.yml"}, "inputs": inputs}, "internalParameters": {"github": github, "finalizerWorkflow": signer_uri, "finalizerCommit": signer_commit, "signingTransactions": summaries}, "resolvedDependencies": dependencies}, "runDetails": {"builder": {"id": signer_uri}, "metadata": {"invocationId": f"{repository_uri}/actions/runs/{os.environ['GITHUB_RUN_ID']}/attempts/{os.environ['GITHUB_RUN_ATTEMPT']}"}}}
+    return {"buildDefinition": {"buildType": BUILD_TYPE, "externalParameters": {"workflow": {"repository": repository_uri, "ref": os.environ["GITHUB_REF"], "path": ".github/workflows/bathysign-release.yml"}, "inputs": inputs}, "internalParameters": {"github": github, "finalizerWorkflow": signer_uri, "finalizerCommit": signer_commit, "finalizerWorkflowDigest": signer_digest, "signingTransactions": summaries}, "resolvedDependencies": dependencies}, "runDetails": {"builder": {"id": signer_uri}, "metadata": {"invocationId": f"{repository_uri}/actions/runs/{os.environ['GITHUB_RUN_ID']}/attempts/{os.environ['GITHUB_RUN_ATTEMPT']}"}}}
 
 
 def prepare(policy_path, source_run_id, source_attempt, out, tool_dir):
