@@ -84,11 +84,60 @@ class PolicyTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "another repository"):
             self.fetch(self.responses(policy))
 
-    def test_trusted_builder_identity_requires_repository_id_and_branch_protection(self):
-        for responses in ([{"id": 99, "visibility": "public"}],
-                          [{"id": 1001, "visibility": "public"}, {"protected": False}]):
-            with mock.patch.object(p.r, "api", side_effect=responses), self.assertRaises(ValueError):
-                p.r.verify_workflow_identity(identity())
+    def test_trusted_release_identity_and_annotated_tags(self):
+        builder = identity()
+        metadata = {"id": builder['repository_id'], "visibility": "public"}
+        release = {'tag_name':'v0.2.0', 'draft':False, 'immutable':True}
+        def ref(obj):
+            return {'ref':builder['refs'][0], 'object':obj}
+        commit = {'type':'commit', 'sha':builder['commit']}
+        for annotated in (False, True):
+            responses = [metadata, release, ref({'type':'tag', 'sha':'a'*40} if annotated else commit)]
+            if annotated:
+                responses.append({'sha':'a'*40, 'object':commit})
+            with mock.patch.object(p.r, 'api', side_effect=responses):
+                p.r.verify_workflow_identity(builder)
+        for responses in (
+            [{'id':99, 'visibility':'public'}],
+            [{**metadata, 'visibility':'private'}],
+            [metadata, {**release, 'immutable':False}],
+            [metadata, {**release, 'draft':True}],
+            [metadata, {**release, 'tag_name':'v0.2.1'}],
+            [metadata, {}],
+            [metadata, release, ref({**commit, 'sha':'b'*40})],
+            [metadata, release, ref({**commit, 'type':'tree'})],
+            [metadata, release, {'ref':'refs/tags/v0.2.1','object':commit}],
+            [metadata, release, ref({'type':'tag','sha':'a'*40}), {'sha':'a'*40,'object':{'type':'tag','sha':'a'*40}}],
+        ):
+            with self.subTest(responses=responses), mock.patch.object(p.r, 'api', side_effect=responses), self.assertRaises(ValueError):
+                p.r.verify_workflow_identity(builder)
+        responses = [metadata, release, ref({'type':'tag','sha':'0'*40})]
+        responses.extend({'sha':str(i)*40,'object':{'type':'tag','sha':str(i+1)*40}} for i in range(8))
+        with mock.patch.object(p.r, 'api', side_effect=responses), self.assertRaisesRegex(ValueError, 'depth exceeded'):
+            p.r.verify_workflow_identity(builder)
+        with mock.patch.object(p.r, 'api', side_effect=RuntimeError('API unavailable')), self.assertRaises(RuntimeError):
+            p.r.verify_workflow_identity(builder)
+
+    def test_workflow_policy_rejects_branch_wildcard_and_unpinned_identities(self):
+        for reference in ('refs/heads/main', 'refs/tags/v*', 'refs/tags/v1', 'refs/tags/v01.2.0'):
+            with self.subTest(reference=reference), self.assertRaises(ValueError):
+                p.r.validate_workflow_identity({**identity(), 'refs':[reference]})
+        for commit in ('', 'a'*39, 'A'*40):
+            with self.subTest(commit=commit), self.assertRaises(ValueError):
+                p.r.validate_workflow_identity({**identity(), 'commit':commit})
+        with self.assertRaises(ValueError):
+            p.r.validate_workflow_identity({k:v for k,v in identity().items() if k != 'commit'})
+        with self.assertRaises(ValueError):
+            p.r.validate_policy({**self.policy, 'finalizer':{**self.policy['finalizer'], 'commit':'b'*40}})
+        p.r.validate_workflow_identity({**identity(), 'refs':['refs/tags/v0.2.0-rc.1']})
+
+    def test_finalizer_certificate_digest_must_match_policy(self):
+        finalizer = self.policy['finalizer']
+        uri = f"https://github.com/{finalizer['repository']}/{finalizer['workflow']}@{finalizer['refs'][0]}"
+        with mock.patch.object(p.r, 'verify_workflow_identity'):
+            for sha in ('a'*40, '', None):
+                with self.subTest(sha=sha), self.assertRaises(ValueError):
+                    p.r.verify_finalizer_certificate(self.policy, {'buildSignerURI':uri,'buildSignerDigest':sha})
 
     def test_removed_authorization_modes_and_missing_finalizer_are_rejected(self):
         for field, value in (("authorization", "content-pins"), ("authorization", "workflow-identity"),
@@ -109,11 +158,11 @@ class PolicyTests(unittest.TestCase):
         trusted = identity("bathysign-finalize.yml")
         self.policy["finalizer"] = trusted
         self.policy_path.write_bytes(p.json_bytes(self.policy))
-        signer = "https://github.com/example/workflows/.github/workflows/bathysign-finalize.yml@refs/heads/bathysign-v1"
+        signer = "https://github.com/example/workflows/.github/workflows/bathysign-finalize.yml@refs/tags/v0.2.0"
         certificate = self.result["verificationResult"]["signature"]["certificate"]
-        certificate.update(buildSignerURI=signer, buildSignerDigest="1" * 40)
+        certificate.update(buildSignerURI=signer, buildSignerDigest="d" * 40)
         self.predicate.update(runDetails={"builder": {"id": signer}})
-        self.predicate["buildDefinition"]["internalParameters"] = {"finalizerCommit": "1" * 40}
+        self.predicate["buildDefinition"]["internalParameters"] = {"finalizerCommit": "d" * 40}
         self.populate()
         with mock.patch.dict(os.environ, self.env, clear=True), \
              mock.patch.object(p.r, "api", return_value={"id": 42, "visibility": "public", "default_branch": "main"}), \

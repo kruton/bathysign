@@ -1,9 +1,9 @@
 name: Android signer tests
 on:
   push:
-    branches: [main, bathysign-v1]
+    branches: [main]
   pull_request:
-    branches: [main, bathysign-v1]
+    branches: [main]
 permissions:
   contents: read
 jobs:

@@ -172,6 +172,8 @@ See [the workflow and policy guide](docs/slsa.md) for caller-owner policy discov
 
 The [monitoring guide](deploy/monitoring/README.md) describes metrics and alert templates. Application-specific configuration and deployment records belong in a separate operator repository; they are not needed to build or test Bathysign.
 
+Release tags are immutable product snapshots. See [release and branching policy](docs/releases.md#branching-and-version-tags) and [workflow policy migration](docs/slsa.md#migrate-from-branch-policies) for exact tag/commit authorization.
+
 ## License
 
 Bathysign is licensed under [Apache-2.0](LICENSE). Vendored third-party code retains its own licenses and copyright notices in `vendor/`.

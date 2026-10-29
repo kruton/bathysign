@@ -20,7 +20,7 @@ SPEC.loader.exec_module(p)
 
 def identity(workflow="bathysign-attest.yml"):
     return {"repository": "example/workflows", "repository_id": 1001,
-        "workflow": ".github/workflows/" + workflow, "refs": ["refs/heads/bathysign-v1"]}
+        "workflow": ".github/workflows/" + workflow, "refs": ["refs/tags/v0.2.0"], "commit": "d" * 40}
 
 
 class HandoffTests(unittest.TestCase):
@@ -55,11 +55,11 @@ class HandoffTests(unittest.TestCase):
         self.predicate = {"buildDefinition": {"buildType": p.r.BUILD_TYPE, "externalParameters": {"workflow": {
             "repository": "https://github.com/example/app", "ref": "refs/heads/main", "path": ".github/workflows/bathysign-release.yml"},
             "inputs": {"source_run": "10", "source_attempt": "2"}}}}
-        signer = "https://github.com/example/workflows/.github/workflows/bathysign-finalize.yml@refs/heads/bathysign-v1"
+        signer = "https://github.com/example/workflows/.github/workflows/bathysign-finalize.yml@refs/tags/v0.2.0"
         self.predicate["runDetails"] = {"builder": {"id": signer}}
-        self.predicate["buildDefinition"]["internalParameters"] = {"finalizerCommit": "1" * 40}
+        self.predicate["buildDefinition"]["internalParameters"] = {"finalizerCommit": "d" * 40}
         self.result = {"verificationResult": {"statement": {"predicateType": p.r.SLSA, "predicate": self.predicate, "subject": []},
-            "signature": {"certificate": {"runInvocationURI": "https://github.com/example/app/actions/runs/99/attempts/1", "sourceRepositoryIdentifier": "42", "buildSignerURI": signer, "buildSignerDigest": "1" * 40}}}}
+            "signature": {"certificate": {"runInvocationURI": "https://github.com/example/app/actions/runs/99/attempts/1", "sourceRepositoryIdentifier": "42", "buildSignerURI": signer, "buildSignerDigest": "d" * 40}}}}
         self.populate()
 
     def test_bundle_verification_uses_policy_identity_without_creating_drafts(self):

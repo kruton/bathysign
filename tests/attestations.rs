@@ -79,13 +79,14 @@ fn reusable_builder_and_caller_are_authorized_independently() {
     repo.callers = vec![".github/workflows/release.yml".into()];
     repo.builder.repository = "trusted/builders".into();
     repo.builder.workflow = ".github/workflows/android.yml".into();
-    repo.builder.refs = vec!["refs/tags/v1".into()];
+    repo.builder.refs = vec!["refs/tags/v0.2.0".into()];
     repo.refs = vec!["refs/heads/main".into(), "refs/tags/v*".into()];
     repo.events = vec!["push".into()];
     let sha = "b".repeat(40);
     let builder_sha = "c".repeat(40);
     let caller = "https://github.com/owner/app/.github/workflows/release.yml@refs/heads/main";
-    let builder = "https://github.com/trusted/builders/.github/workflows/android.yml@refs/tags/v1";
+    let builder =
+        "https://github.com/trusted/builders/.github/workflows/android.yml@refs/tags/v0.2.0";
     let invocation = "https://github.com/owner/app/actions/runs/100/attempts/2";
     let mut claims = sigstore_crypto::FulcioCiClaims::default();
     claims.source_repository_uri = Some("https://github.com/owner/app".into());
@@ -137,6 +138,8 @@ fn reusable_builder_and_caller_are_authorized_independently() {
     bad.runner_environment = Some("self-hosted".into());
     assert!(verify(&statement, &bad).is_err());
     let mut bad = claims.clone();
+    bad.build_signer_digest = Some("d".repeat(40));
+    assert!(verify(&statement, &bad).is_err());
     bad.build_signer_digest = None;
     assert!(verify(&statement, &bad).is_err());
     assert!(bathysign::config::ref_allowed(

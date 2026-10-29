@@ -462,3 +462,21 @@ fn hybrid_policies_bind_key_algorithms_and_complete_effective_lineages() {
         "hybrid history lacks ordered classical fallback ancestry",
     );
 }
+
+#[test]
+fn workflow_release_pins_are_exported_and_bound_to_policy_hash() {
+    let loaded = load(&FIXTURE.config).unwrap();
+    let original = &loaded.config.repositories[0];
+    let hash = loaded.policy_hash(original).unwrap();
+    let mut changed = original.clone();
+    changed.builder.commit = "b".repeat(40);
+    changed.finalizer.commit = changed.builder.commit.clone();
+    assert_ne!(hash, loaded.policy_hash(&changed).unwrap());
+    changed = original.clone();
+    changed.builder.refs = vec!["refs/tags/v0.2.1".into()];
+    changed.finalizer.refs = changed.builder.refs.clone();
+    assert_ne!(hash, loaded.policy_hash(&changed).unwrap());
+    let policy = loaded.release_policy(original, &"a".repeat(40)).unwrap();
+    assert_eq!(policy["builder"]["commit"], original.builder.commit);
+    assert_eq!(policy["finalizer"]["commit"], original.finalizer.commit);
+}

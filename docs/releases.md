@@ -1,6 +1,6 @@
 # Verify Bathysign releases
 
-Version tags matching Cargo metadata and belonging to main trigger prereleases. Protect `v*` tags and require review of release workflows before using this distribution channel. Stable promotion must reuse verified bytes. No `latest` container tag is maintained.
+Version tags matching Cargo metadata and belonging to main trigger prereleases. Restrict creation of `v*` tags, block their updates/deletion, enable GitHub release immutability, and require review of release workflows before using this distribution channel. The publisher checks that the published release is immutable and its tag resolves to the expected source commit. Stable promotion must reuse verified bytes. No `latest` container tag is maintained.
 
 Downloads include the x86_64 Hermit appliance/loader and AMD64/ARM64 Linux host tools. Host binaries target Debian 13 or compatible glibc environments. The collector container is published at `ghcr.io/kruton/bathysign-collector:vVERSION`; deploy by digest. Mount configuration, TLS credentials and persistent SQLite storage as described in `deploy/collector/README.md`.
 
@@ -77,3 +77,20 @@ The Rust and Python reports are retained as Actions artifacts even when coverage
 Local coverage baseline (2026-10-28 UTC): SonarQube Community Build 26.10.0.133078, using the shared action's pinned SonarScanner 8.1.0.6389 and the same source/test scope, reports **90.0% overall coverage** and passes an overall coverage >=90% gate. The raw counters are 7,068/7,836 covered lines and 442/506 covered conditions (7,510/8,342 combined, or 90.026%). This includes the Java reference helper's 43 uncovered lines; no coverage exclusions were added. Rust LCOV reports 90.39% line coverage, and coverage.py reports 90.72% combined Python line/branch coverage. The local worktree evidence, including server analysis identity, per-file metrics, and source/report hashes, is retained in `coverage/sonarqube-assessment.json` (ignored generated output). This measurement does not establish a SonarCloud analysis or PR check; hosted activation still requires the project, token, and branch rules above.
 
 The Rust-capable shared action is pinned to the `connectbot/actions` main-branch commit that merged [PR #62](https://github.com/connectbot/actions/pull/62). Earlier shared action revisions reject Rust LCOV input. Use the merge commit when updating a consumer after a squash merge, so its pin remains reachable after the review branch is deleted. After landing Bathysign's configuration on main, verify a fork PR receives the App check for its head SHA and a below-threshold PR is blocked.
+
+## Branching and version tags
+
+Develop on `main` through short-lived reviewed PR branches. Release the appliance, collector, host tools, action and reusable workflows together under one `vX.Y.Z` tag matching `Cargo.toml` and `Cargo.lock`. Do not maintain a workflow compatibility branch or floating major tag. Introduce maintenance branches only when supporting multiple released product lines; the current release gate authorizes main ancestry only.
+
+During `0.x`, patches preserve compatibility and minor versions may introduce documented breaking changes. Version `0.2.0` introduces exact workflow release tags and commit pins. Configuration and protocol format numbers remain independent of the product version. Merge version bumps and migration notes before tagging, and wait for the exact commit's required checks and published main Sonar analysis to pass.
+
+The GitHub CLI creates a draft, uploads the complete verified asset set, then publishes the prerelease. Immutability takes effect on publication. Promote the same release by changing its prerelease status after deployment validation; never replace its tag or rebuild its bytes for promotion. A separately tagged release candidate is a distinct release. Existing published releases are reused only if their immutable state, resolved commit and complete asset inventory match. Incomplete drafts cause an error: inspect and finish the verified draft, or remove it and retry publication after confirming it was never published. The publisher never overwrites conflicting assets.
+
+Public consumers can inspect `immutable` on the release-by-tag API without administrative credentials:
+
+```sh
+gh api repos/kruton/bathysign/releases/tags/v0.2.0 \
+  --jq '{tag_name, immutable, draft, prerelease}'
+```
+
+Repository-wide immutability settings require administrative read access and are not used as evidence by the signer. Enabling the setting does not retrofit an existing mutable release. Leave `v0.1.0` untouched and publish a fresh version for this architecture. Follow the [workflow policy migration](slsa.md#migrate-from-branch-policies) when updating consumers.

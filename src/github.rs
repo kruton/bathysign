@@ -153,17 +153,59 @@ impl Github {
                 && metadata["visibility"] == "public",
             "trusted builder repository differs"
         );
-        let branch = builder.refs[0]
-            .strip_prefix("refs/heads/")
-            .ok_or_else(|| anyhow::anyhow!("trusted builder branch missing"))?;
-        let branch = public
-            .get(&format!("/repos/{}/branches/{branch}", builder.repository))
+        ensure!(
+            builder.refs.len() == 1
+                && crate::config::release_ref(&builder.refs[0])
+                && crate::config::valid_commit(&builder.commit),
+            "exact trusted release tag and commit required"
+        );
+        let tag = builder.refs[0].strip_prefix("refs/tags/").unwrap();
+        let release = public
+            .get(&format!(
+                "/repos/{}/releases/tags/{tag}",
+                builder.repository
+            ))
             .await?;
         ensure!(
-            branch["protected"] == true,
-            "trusted builder branch is not protected"
+            release["tag_name"] == tag && release["draft"] == false && release["immutable"] == true,
+            "trusted workflow release is not published and immutable"
         );
-        Ok(())
+        let reference = public
+            .get(&format!("/repos/{}/git/ref/tags/{tag}", builder.repository))
+            .await?;
+        ensure!(
+            reference["ref"] == builder.refs[0],
+            "trusted release tag differs"
+        );
+        let mut object = reference["object"].clone();
+        let mut seen = std::collections::BTreeSet::new();
+        for depth in 0..=8 {
+            let sha = object["sha"]
+                .as_str()
+                .ok_or_else(|| anyhow::anyhow!("tag object SHA missing"))?;
+            ensure!(
+                crate::config::valid_commit(sha) && seen.insert(sha.to_owned()),
+                "invalid or cyclic tag object"
+            );
+            match object["type"].as_str() {
+                Some("commit") => {
+                    ensure!(
+                        sha == builder.commit,
+                        "trusted release commit differs from policy pin"
+                    );
+                    return Ok(());
+                }
+                Some("tag") if depth < 8 => {
+                    let annotated = public
+                        .get(&format!("/repos/{}/git/tags/{sha}", builder.repository))
+                        .await?;
+                    ensure!(annotated["sha"] == sha, "annotated tag object differs");
+                    object = annotated["object"].clone();
+                }
+                _ => anyhow::bail!("unsupported tag object or annotation depth exceeded"),
+            }
+        }
+        anyhow::bail!("tag annotation depth exceeded")
     }
     pub async fn get(&self, path: &str) -> Result<Value> {
         let response = self

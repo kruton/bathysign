@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
 """Deterministic release packaging and independent build comparison."""
 import argparse
+import contextlib
 import gzip
 import hashlib
+import http.client
 import io
 import json
+import os
 import pathlib
 import re
 import subprocess
@@ -35,6 +38,62 @@ def archive(output, entries, epoch):
                 info.mtime = epoch
                 info.mode = 0o755 if name.startswith('bin/') else 0o644
                 tar.addfile(info, io.BytesIO(data))
+
+
+def validate_release_identity(tag, commit):
+    """Allow only exact release versions and full lowercase commit pins."""
+    if not isinstance(tag, str) or not re.fullmatch(r'v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z.-]+)?', tag):
+        raise SystemExit('Invalid release tag')
+    if not isinstance(commit, str) or not re.fullmatch(r'[a-f0-9]{40}', commit):
+        raise SystemExit('Invalid release commit')
+
+
+def github_release_api(path, *, allow_missing=False):
+    """Read release metadata from GitHub without invoking a command or following redirects."""
+    headers = {'Accept': 'application/vnd.github+json',
+               'X-GitHub-Api-Version': '2026-03-10', 'User-Agent': 'bathysign-release'}
+    token = os.environ.get('GH_TOKEN') or os.environ.get('GITHUB_TOKEN')
+    if token:
+        headers['Authorization'] = 'Bearer ' + token
+    with contextlib.closing(http.client.HTTPSConnection('api.github.com', timeout=30)) as connection:
+        connection.request('GET', '/' + path, headers=headers)
+        response = connection.getresponse()
+        if response.status == 404 and allow_missing:
+            return None
+        if response.status != 200:
+            raise SystemExit(f'GitHub release API returned HTTP {response.status}')
+        body = response.read(8 * 1024 * 1024 + 1)
+        if len(body) > 8 * 1024 * 1024:
+            raise SystemExit('GitHub release API response exceeds size limit')
+        return json.loads(body)
+
+
+def verify_published_release(tag, commit):
+    """Require a published immutable product release at the expected source commit."""
+    validate_release_identity(tag, commit)
+    repository = 'kruton/bathysign'
+    release = github_release_api(f'repos/{repository}/releases/tags/{tag}')
+    if release.get('tag_name') != tag or release.get('draft') is not False or release.get('immutable') is not True:
+        raise SystemExit('Release must be published and immutable; inspect incomplete drafts before retrying')
+    reference = github_release_api(f'repos/{repository}/git/ref/tags/{tag}')
+    if reference.get('ref') != 'refs/tags/' + tag:
+        raise SystemExit('Release tag differs')
+    obj, seen = reference['object'], set()
+    for depth in range(9):
+        sha = obj.get('sha')
+        if not isinstance(sha, str) or not re.fullmatch('[a-f0-9]{40}', sha) or sha in seen:
+            raise SystemExit('Invalid or cyclic release tag object')
+        seen.add(sha)
+        if obj.get('type') == 'commit':
+            if sha != commit:
+                raise SystemExit('Release source commit differs')
+            return
+        if obj.get('type') != 'tag' or depth == 8:
+            raise SystemExit('Unsupported release tag object or annotation depth exceeded')
+        annotated = github_release_api(f'repos/{repository}/git/tags/{sha}')
+        if annotated.get('sha') != sha:
+            raise SystemExit('Annotated release tag object differs')
+        obj = annotated['object']
 
 
 def main():
