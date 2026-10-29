@@ -177,6 +177,10 @@ impl Github {
             reference["ref"] == builder.refs[0],
             "trusted release tag differs"
         );
+        ensure!(
+            reference["object"]["sha"] == builder.workflow_digest(),
+            "trusted workflow digest differs from policy pin"
+        );
         let mut object = reference["object"].clone();
         let mut seen = std::collections::BTreeSet::new();
         for depth in 0..=8 {

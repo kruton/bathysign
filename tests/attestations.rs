@@ -2,6 +2,50 @@ static INIT: std::sync::Once = std::sync::Once::new();
 fn initialize() {
     INIT.call_once(|| bathysign::initialize_crypto().unwrap());
 }
+
+#[test]
+fn genuine_annotated_release_bundle_keeps_source_and_workflow_digests_separate() {
+    initialize();
+    let config: bathysign::config::Config =
+        serde_json::from_str(include_str!("../config/signer.example.json")).unwrap();
+    let mut repository = config.repositories[0].clone();
+    repository.id = 1421097317;
+    repository.name = "connectbot/test-signer-1".into();
+    repository.callers = vec![".github/workflows/ci.yml".into()];
+    repository.refs = vec!["refs/heads/main".into()];
+    repository.builder = bathysign::config::Builder {
+        repository: "kruton/bathysign".into(),
+        repository_id: 1436515323,
+        workflow: ".github/workflows/bathysign-attest.yml".into(),
+        refs: vec!["refs/tags/v0.2.0".into()],
+        commit: "2103fdfc57058d232be05e2a16697a8e90e6b85f".into(),
+        workflow_digest: Some("afba3630da667063a728b5a7f59ba5a174bb9e94".into()),
+    };
+    let bundle =
+        serde_json::from_str(include_str!("fixtures/github-annotated.sigstore.json")).unwrap();
+    let verify = |repo: &bathysign::config::Repository| {
+        bathysign::attestation::verify_digest_with_root(
+            "24c63f0bd43e6a69152c90a4f3c12b2a4a4743ac654e8ce3eaf63b32f057315e",
+            &bundle,
+            repo,
+            include_bytes!("fixtures/github-annotated-trusted-root.json"),
+            4102444800,
+            "b7d04740b5ed337855dadd02aa4f0e4637286ddd",
+            40820440798,
+            1,
+        )
+    };
+    let verified = verify(&repository).unwrap();
+    assert_eq!(verified["builder_commit"], repository.builder.commit);
+    assert_eq!(
+        verified["builder_workflow_digest"],
+        repository.builder.workflow_digest()
+    );
+    repository.builder.workflow_digest = None;
+    assert!(verify(&repository).is_err());
+    repository.builder.workflow_digest = Some("a".repeat(40));
+    assert!(verify(&repository).is_err());
+}
 use sigstore_trust_root::TrustedRoot;
 use sigstore_types::{Bundle, Sha256Hash};
 use sigstore_verify::{VerificationPolicy, Verifier};
@@ -251,7 +295,7 @@ fn authenticated_slsa_certificates_cannot_substitute_repository_invocation_or_ru
         assert!(
             error.to_string().contains("claim")
                 || error.to_string().contains("eligible")
-                || error.to_string().contains("builder commit"),
+                || error.to_string().contains("builder workflow digest"),
             "claim {claim}: {error}"
         );
     }

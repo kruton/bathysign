@@ -25,7 +25,7 @@ jobs:
           cp app/build/outputs/mapping/release/mapping.txt support/mapping.txt
           cp app/build/outputs/native-debug-symbols/release/native-debug-symbols.zip support/native-debug-symbols.zip
       - name: Prepare attested release metadata
-        uses: kruton/bathysign/bathysign@v0.2.0 # Exact immutable release; authorize its commit in signing policy.
+        uses: kruton/bathysign/bathysign@v0.2.1 # Exact immutable release; authorize its commit in signing policy.
         with:
           command: build-info
           profile: default
@@ -44,7 +44,7 @@ jobs:
           if-no-files-found: error
   attest:
     needs: build
-    uses: kruton/bathysign/.github/workflows/bathysign-attest.yml@v0.2.0
+    uses: kruton/bathysign/.github/workflows/bathysign-attest.yml@v0.2.1
     permissions:
       contents: read
       actions: read

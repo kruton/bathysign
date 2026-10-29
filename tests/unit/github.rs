@@ -262,6 +262,7 @@ async fn builder_identity_requires_an_immutable_release_and_commit_without_crede
         workflow: ".github/workflows/build.yml".into(),
         refs: vec!["refs/tags/v0.2.0".into()],
         commit: "c".repeat(40),
+        workflow_digest: None,
     };
     let metadata = || {
         Exchange::json(
@@ -284,6 +285,10 @@ async fn builder_identity_requires_an_immutable_release_and_commit_without_crede
     };
     let immutable = json!({"tag_name":"v0.2.0","draft":false,"immutable":true});
     for annotated in [false, true] {
+        let mut pinned = builder.clone();
+        if annotated {
+            pinned.workflow_digest = Some("a".repeat(40));
+        }
         let object = if annotated {
             json!({"type":"tag","sha":"a".repeat(40)})
         } else {
@@ -301,7 +306,7 @@ async fn builder_identity_requires_an_immutable_release_and_commit_without_crede
             );
         }
         let (github, task) = fixture(exchanges);
-        github.verify_builder_identity(&builder).await.unwrap();
+        github.verify_builder_identity(&pinned).await.unwrap();
         task.join().unwrap();
     }
     for value in [
@@ -337,7 +342,33 @@ async fn builder_identity_requires_an_immutable_release_and_commit_without_crede
         assert!(github.verify_builder_identity(&builder).await.is_err());
         task.join().unwrap();
     }
+    // A correct workflow object pin cannot authorize another source commit.
+    let mut annotated = builder.clone();
+    annotated.workflow_digest = Some("a".repeat(40));
+    let (github, task) = fixture(vec![
+        metadata(),
+        release(immutable.clone()),
+        reference(json!({"type":"tag","sha":"a".repeat(40)})),
+        Exchange::json(
+            "GET",
+            &format!("/repos/trusted/builders/git/tags/{}", "a".repeat(40)),
+            json!({"sha":"a".repeat(40),"object":{"type":"commit","sha":"b".repeat(40)}}),
+        )
+        .public(),
+    ]);
+    assert!(github.verify_builder_identity(&annotated).await.is_err());
+    task.join().unwrap();
+    // Omitting the workflow pin cannot silently accept an annotated tag.
+    let (github, task) = fixture(vec![
+        metadata(),
+        release(immutable.clone()),
+        reference(json!({"type":"tag","sha":"a".repeat(40)})),
+    ]);
+    assert!(github.verify_builder_identity(&builder).await.is_err());
+    task.join().unwrap();
     let sha = "a".repeat(40);
+    let mut annotated_builder = builder.clone();
+    annotated_builder.workflow_digest = Some(sha.clone());
     let (github, task) = fixture(vec![
         metadata(),
         release(immutable),
@@ -349,7 +380,12 @@ async fn builder_identity_requires_an_immutable_release_and_commit_without_crede
         )
         .public(),
     ]);
-    assert!(github.verify_builder_identity(&builder).await.is_err());
+    assert!(
+        github
+            .verify_builder_identity(&annotated_builder)
+            .await
+            .is_err()
+    );
     task.join().unwrap();
 }
 

@@ -104,3 +104,17 @@ gh api repos/kruton/bathysign/releases/tags/v0.2.0 \
 ```
 
 Repository-wide immutability settings require administrative read access and are not used as evidence by the signer. Enabling the setting does not retrofit an existing mutable release. Leave `v0.1.0` untouched and publish a fresh version for this architecture. Follow the [workflow policy migration](slsa.md#migrate-from-branch-policies) when updating consumers.
+
+## Annotated workflow release identities
+
+Version 0.2.1 adds an optional `workflow_digest` pin for annotated workflow tags.
+Keep the source commit and tag object as separate pins in builder/finalizer
+policies. GitHub certificates and job workflow metadata identify an annotated
+tag object, while code and provenance dependencies identify its resolved source
+commit. Both are verified; neither substitutes for the other. Lightweight tags
+retain the existing commit-only policy. See [workflow migration](slsa.md).
+
+The immutable v0.2.0 release exposed this mismatch during a genuine disposable
+signing trial. Do not move or replace its tag. Publish the corrected release,
+regenerate policies and increment their revisions, then run fresh source builds
+with the new workflow tag before the production cutover.

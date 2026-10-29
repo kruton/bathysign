@@ -179,7 +179,7 @@ pub fn verify_digest_with_root(
     )?;
     validate_claims(&statement, claims, repo, commit, run_id, attempt)?;
     Ok(
-        json!({"bundle_sha256":crate::sha256(&serde_json::to_vec(bundle_json)?),"subject_sha256":digest,"caller":caller,"ref":ref_name,"commit":commit,"run":invocation,"runner":runner,"event":trigger,"builder":identity,"builder_commit":claims.build_signer_digest,"caller_commit":claims.build_config_digest,"trust_root_sha256":crate::sha256(root_bytes)}),
+        json!({"bundle_sha256":crate::sha256(&serde_json::to_vec(bundle_json)?),"subject_sha256":digest,"caller":caller,"ref":ref_name,"commit":commit,"run":invocation,"runner":runner,"event":trigger,"builder":identity,"builder_commit":repo.builder.commit,"builder_workflow_digest":claims.build_signer_digest,"caller_commit":claims.build_config_digest,"trust_root_sha256":crate::sha256(root_bytes)}),
     )
 }
 
@@ -261,13 +261,13 @@ pub fn validate_claims(
         ref_allowed(&repo.builder.refs, builder_ref),
         "builder ref differs"
     );
-    let builder_commit = claims
+    let builder_digest = claims
         .build_signer_digest
         .as_deref()
-        .ok_or_else(|| anyhow::anyhow!("builder commit missing"))?;
+        .ok_or_else(|| anyhow::anyhow!("builder workflow digest missing"))?;
     ensure!(
-        builder_commit == repo.builder.commit,
-        "builder commit differs from policy pin"
+        builder_digest == repo.builder.workflow_digest(),
+        "builder workflow digest differs from policy pin"
     );
     ensure!(
         claims.runner_environment.as_deref() == Some("github-hosted")
