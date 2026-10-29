@@ -77,6 +77,7 @@ pub struct Builder {
     pub repository_id: u64,
     pub workflow: String,
     pub refs: Vec<String>,
+    pub commit: String,
 }
 impl Repository {
     pub fn allows_caller(&self, path: &str) -> bool {
@@ -97,18 +98,18 @@ impl Repository {
             self.builder.repository_id != self.id
                 && self.builder.repository != self.name
                 && self.builder.refs.len() == 1
-                && self.builder.refs[0]
-                    .strip_prefix("refs/heads/")
-                    .is_some_and(safe_path),
-            "a separate trusted builder and one protected branch are required"
+                && release_ref(&self.builder.refs[0])
+                && valid_commit(&self.builder.commit),
+            "a separate trusted builder with one exact release tag and commit pin is required; migrate branch policies"
         );
         ensure!(
             self.finalizer.repository == self.builder.repository
                 && self.finalizer.repository_id == self.builder.repository_id
                 && workflow_path(&self.finalizer.workflow)
                 && self.finalizer.workflow != self.builder.workflow
-                && self.finalizer.refs == self.builder.refs,
-            "a separate finalizer workflow in the same trusted repository and branch is required"
+                && self.finalizer.refs == self.builder.refs
+                && self.finalizer.commit == self.builder.commit,
+            "a separate finalizer workflow in the same trusted repository, release tag and commit is required"
         );
         Ok(())
     }
@@ -128,6 +129,34 @@ impl Repository {
     pub fn allows_ref(&self, value: &str) -> bool {
         ref_allowed(&self.refs, value)
     }
+}
+/// Exact release refs use the same version syntax as the release coordinator.
+pub fn release_ref(value: &str) -> bool {
+    let Some(version) = value.strip_prefix("refs/tags/v") else {
+        return false;
+    };
+    let (core, suffix) = version
+        .split_once('-')
+        .map_or((version, None), |(core, suffix)| (core, Some(suffix)));
+    let components: Vec<_> = core.split('.').collect();
+    components.len() == 3
+        && components.iter().all(|part| {
+            !part.is_empty()
+                && (part.len() == 1 || !part.starts_with('0'))
+                && part.bytes().all(|b| b.is_ascii_digit())
+        })
+        && suffix.is_none_or(|suffix| {
+            !suffix.is_empty()
+                && suffix
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b".-".contains(&b))
+        })
+}
+pub fn valid_commit(value: &str) -> bool {
+    value.len() == 40
+        && value
+            .bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
 }
 pub fn valid_hash(value: &str) -> bool {
     value.len() == 64
@@ -656,6 +685,22 @@ mod tests {
         assert!(repo.validate_workflow_authorization().is_err());
         repo = valid.clone();
         repo.builder.refs = vec!["refs/tags/v*".into()];
+        assert!(repo.validate_workflow_authorization().is_err());
+        repo = valid.clone();
+        for reference in [
+            "refs/heads/main",
+            "refs/tags/v1",
+            "refs/tags/v01.2.0",
+            "refs/tags/v0.2.0*",
+        ] {
+            repo.builder.refs = vec![reference.into()];
+            assert!(repo.validate_workflow_authorization().is_err());
+        }
+        repo = valid.clone();
+        repo.finalizer.commit = "b".repeat(40);
+        assert!(repo.validate_workflow_authorization().is_err());
+        repo = valid.clone();
+        repo.builder.commit = "C".repeat(40);
         assert!(repo.validate_workflow_authorization().is_err());
         repo = valid.clone();
         repo.finalizer.repository = "attacker/builders".into();

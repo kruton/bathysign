@@ -255,55 +255,101 @@ async fn installation_tokens_are_repository_scoped_and_least_privileged() {
 }
 
 #[tokio::test]
-async fn builder_identity_is_checked_publicly_without_installation_credentials() {
+async fn builder_identity_requires_an_immutable_release_and_commit_without_credentials() {
     let builder = crate::config::Builder {
         repository: "trusted/builders".into(),
         repository_id: 7,
         workflow: ".github/workflows/build.yml".into(),
-        refs: vec!["refs/heads/main".into()],
+        refs: vec!["refs/tags/v0.2.0".into()],
+        commit: "c".repeat(40),
     };
-    for protected in [true, false] {
-        let (github, task) = fixture(vec![
-            Exchange::json(
-                "GET",
-                "/repos/trusted/builders",
-                json!({"id":7,"visibility":"public"}),
-            )
-            .public(),
-            Exchange::json(
-                "GET",
-                "/repos/trusted/builders/branches/main",
-                json!({"protected":protected}),
-            )
-            .public(),
-        ]);
-        assert_eq!(
-            github.verify_builder_identity(&builder).await.is_ok(),
-            protected
-        );
-        task.join().unwrap();
-    }
-    for metadata in [
-        json!({"id":8,"visibility":"public"}),
-        json!({"id":7,"visibility":"private"}),
-    ] {
-        let (github, task) = fixture(vec![
-            Exchange::json("GET", "/repos/trusted/builders", metadata).public(),
-        ]);
-        assert!(github.verify_builder_identity(&builder).await.is_err());
-        task.join().unwrap();
-    }
-    let mut tag = builder.clone();
-    tag.refs = vec!["refs/tags/v1".into()];
-    let (github, task) = fixture(vec![
+    let metadata = || {
         Exchange::json(
             "GET",
             "/repos/trusted/builders",
             json!({"id":7,"visibility":"public"}),
         )
+        .public()
+    };
+    let release = |value| {
+        Exchange::json("GET", "/repos/trusted/builders/releases/tags/v0.2.0", value).public()
+    };
+    let reference = |object| {
+        Exchange::json(
+            "GET",
+            "/repos/trusted/builders/git/ref/tags/v0.2.0",
+            json!({"ref":"refs/tags/v0.2.0","object":object}),
+        )
+        .public()
+    };
+    let immutable = json!({"tag_name":"v0.2.0","draft":false,"immutable":true});
+    for annotated in [false, true] {
+        let object = if annotated {
+            json!({"type":"tag","sha":"a".repeat(40)})
+        } else {
+            json!({"type":"commit","sha":builder.commit})
+        };
+        let mut exchanges = vec![metadata(), release(immutable.clone()), reference(object)];
+        if annotated {
+            exchanges.push(
+                Exchange::json(
+                    "GET",
+                    &format!("/repos/trusted/builders/git/tags/{}", "a".repeat(40)),
+                    json!({"sha":"a".repeat(40),"object":{"type":"commit","sha":builder.commit}}),
+                )
+                .public(),
+            );
+        }
+        let (github, task) = fixture(exchanges);
+        github.verify_builder_identity(&builder).await.unwrap();
+        task.join().unwrap();
+    }
+    for value in [
+        json!({}),
+        json!({"tag_name":"v0.2.0","draft":true,"immutable":true}),
+        json!({"tag_name":"v0.2.0","draft":false,"immutable":false}),
+        json!({"tag_name":"v0.2.1","draft":false,"immutable":true}),
+    ] {
+        let (github, task) = fixture(vec![metadata(), release(value)]);
+        assert!(github.verify_builder_identity(&builder).await.is_err());
+        task.join().unwrap();
+    }
+    for object in [
+        json!({"type":"commit","sha":"b".repeat(40)}),
+        json!({"type":"tree","sha":builder.commit}),
+        json!({}),
+    ] {
+        let (github, task) = fixture(vec![
+            metadata(),
+            release(immutable.clone()),
+            reference(object),
+        ]);
+        assert!(github.verify_builder_identity(&builder).await.is_err());
+        task.join().unwrap();
+    }
+    for info in [
+        json!({"id":8,"visibility":"public"}),
+        json!({"id":7,"visibility":"private"}),
+    ] {
+        let (github, task) = fixture(vec![
+            Exchange::json("GET", "/repos/trusted/builders", info).public(),
+        ]);
+        assert!(github.verify_builder_identity(&builder).await.is_err());
+        task.join().unwrap();
+    }
+    let sha = "a".repeat(40);
+    let (github, task) = fixture(vec![
+        metadata(),
+        release(immutable),
+        reference(json!({"type":"tag","sha":sha})),
+        Exchange::json(
+            "GET",
+            &format!("/repos/trusted/builders/git/tags/{sha}"),
+            json!({"sha":sha,"object":{"type":"tag","sha":sha}}),
+        )
         .public(),
     ]);
-    assert!(github.verify_builder_identity(&tag).await.is_err());
+    assert!(github.verify_builder_identity(&builder).await.is_err());
     task.join().unwrap();
 }
 

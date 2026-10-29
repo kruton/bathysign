@@ -5,9 +5,10 @@ import pathlib
 import subprocess
 import sys
 import tempfile
-from release import archive, inventory
+from release import archive, github_release_api, inventory, validate_release_identity, verify_published_release
 
 root, tag, commit = pathlib.Path(sys.argv[1]), sys.argv[2], sys.argv[3]
+validate_release_identity(tag, commit)
 with tempfile.TemporaryDirectory() as temporary:
     stage = pathlib.Path(temporary)
     verification = {'VERIFY.md': pathlib.Path(__file__).resolve().parents[1] / 'docs/releases.md'}
@@ -27,8 +28,11 @@ with tempfile.TemporaryDirectory() as temporary:
     archive(stage / f'bathysign-{tag.removeprefix("v")}-verification.tar.gz', verification, 0)
     files = inventory(stage)
     (stage / 'SHA256SUMS').write_text(''.join(f'{digest}  {name}\n' for name, digest in files.items()))
-    result = subprocess.run(['gh', 'release', 'view', tag, '--json', 'targetCommitish,isPrerelease'], capture_output=True, text=True)
-    if result.returncode == 0:
+    release = github_release_api(f'repos/kruton/bathysign/releases/tags/{tag}', allow_missing=True)
+    if release is not None:
+        if release.get('draft') is not False:
+            raise SystemExit('Incomplete release draft; inspect its assets and finish or remove the draft before retrying')
+        verify_published_release(tag, commit)
         existing = stage / 'existing'
         existing.mkdir()
         subprocess.run(['gh', 'release', 'download', tag, '--dir', str(existing)], check=True)
@@ -37,7 +41,7 @@ with tempfile.TemporaryDirectory() as temporary:
         if inventory(existing) != expected:
             raise SystemExit('Existing release conflicts; refusing replacement')
     else:
-        # A read failure is never treated as permission to overwrite existing assets.
+        # Only an explicit 404 permits creating a new release.
         subprocess.run(['gh', 'release', 'create', tag, '--verify-tag', '--target', commit,
                         '--prerelease', '--title', 'Bathysign ' + tag,
                         '--notes', f'''Choose your downloads:
@@ -59,3 +63,5 @@ The collector is also available for AMD64 and ARM64 as `ghcr.io/kruton/bathysign
 Binary archives were rebuilt twice on fresh GitHub-hosted runners and compared byte for byte. Source commit: `{commit}`. Offline builder images and fetched dependency caches are retained as Actions artifacts, subject to retention limits, and are unnecessary for installation.
 ''',
                         *map(str, sorted(stage.iterdir()))], check=True)
+
+    verify_published_release(tag, commit)

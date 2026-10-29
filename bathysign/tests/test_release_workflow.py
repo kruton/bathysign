@@ -27,7 +27,7 @@ class ReleaseTests(unittest.TestCase):
         inputs = {"source_run": "42", "source_attempt": "2"}
         event.write_text(release.json.dumps({"inputs": inputs}))
         environment = {"GITHUB_EVENT_NAME": "workflow_dispatch", "GITHUB_REF": "refs/heads/main", "GITHUB_EVENT_PATH": str(event), "RUNNER_ENVIRONMENT": "github-hosted", "GITHUB_WORKFLOW_REF": f"{policy['repository']}/.github/workflows/bathysign-release.yml@refs/heads/main", "GITHUB_SHA": "c" * 40, "GITHUB_RUN_ID": "99", "GITHUB_RUN_ATTEMPT": "1"}
-        environment.update(BATHYSIGN_JOB_WORKFLOW_REF="example/workflows/.github/workflows/bathysign-finalize.yml@refs/heads/bathysign-v1", BATHYSIGN_JOB_WORKFLOW_SHA="d" * 40)
+        environment.update(BATHYSIGN_JOB_WORKFLOW_REF="example/workflows/.github/workflows/bathysign-finalize.yml@refs/tags/v0.2.0", BATHYSIGN_JOB_WORKFLOW_SHA="d" * 40)
         with mock.patch.dict(release.os.environ, environment, clear=True), mock.patch.object(release, "verify_workflow_identity"):
             dependency = {"uri": "urn:test:unsigned", "digest": {"sha256": "d" * 64}}
             predicate = release.final_predicate(policy, 42, 2, {"id": policy["repository_id"], "owner": {"id": 7}, "default_branch": "main"}, {}, [dependency])
@@ -36,6 +36,9 @@ class ReleaseTests(unittest.TestCase):
             self.assertEqual(predicate["buildDefinition"]["resolvedDependencies"][0]["digest"], {"gitCommit": "c" * 40})
             self.assertEqual(predicate["buildDefinition"]["resolvedDependencies"][1]["digest"], {"gitCommit": "d" * 40})
             self.assertEqual(predicate["buildDefinition"]["resolvedDependencies"][2], dependency)
+            with mock.patch.dict(release.os.environ, {'BATHYSIGN_JOB_WORKFLOW_SHA':'a'*40}):
+                with self.assertRaisesRegex(ValueError, 'revision differs from policy pin'):
+                    release.final_predicate(policy, 42, 2, {'default_branch':'main'}, {}, [])
             event.write_text(release.json.dumps({"inputs": {**inputs, "source_run": "43"}}))
             with self.assertRaises(ValueError):
                 release.final_predicate(policy, 42, 2, {"id": policy["repository_id"], "owner": {"id": 7}, "default_branch": "main"}, {}, [])
@@ -193,7 +196,7 @@ class ReleaseTests(unittest.TestCase):
             receipt['artifacts'][kind] = {'id':identity, 'name':'unsigned-oss-2', 'digest':'sha256:'+release.digest(archive), 'workflow_run':{'id':10, 'head_sha':source['head_sha'], 'repository_id':42}}
         builder = policy['builder']
         builder_uri = f"https://github.com/{builder['repository']}/{builder['workflow']}@{builder['refs'][0]}"
-        receipt['provenance'] = {kind:{'builder':builder_uri, 'builder_commit':'e'*40, 'ref':'refs/heads/main', 'bundle_sha256':release.digest(files['unsigned-'+kind+'.sigstore.json'])} for kind in inputs}
+        receipt['provenance'] = {kind:{'builder':builder_uri, 'builder_commit':'d'*40, 'ref':'refs/heads/main', 'bundle_sha256':release.digest(files['unsigned-'+kind+'.sigstore.json'])} for kind in inputs}
         with mock.patch.object(self, 'receipt', return_value=receipt):
             files['signing-receipt.dsse.json'] = release.json_bytes(self.envelope())
         files['signing-receipt.json'] = release.json_bytes(receipt)
@@ -304,6 +307,8 @@ class ReleaseTests(unittest.TestCase):
         verified = [{'verificationResult':{'signature':{'certificate':certificate}, 'statement':{'predicate':predicate, 'subject':[{'digest':{'sha256':release.digest(inputs['apk'])}}]}, 'verifiedTimestamps':[{'time':'trusted'}]}}]
         with mock.patch.object(release, 'run', side_effect=lambda *args:release.json_bytes(verified)), mock.patch.object(release, 'verify_workflow_identity'):
             release.verify_provenance(artifact, bundle, policy, source, summary)
+            with self.assertRaisesRegex(ValueError, 'builder commit differs from policy pin'):
+                release.verify_provenance(artifact, bundle, policy, source, {**summary, 'builder_commit':'a'*40})
             certificate['runInvocationURI'] = uri+'/actions/runs/10/attempts/1'
             with self.assertRaisesRegex(ValueError, 'certificate claims differ'):
                 release.verify_provenance(artifact, bundle, policy, source, summary)
@@ -332,7 +337,8 @@ class ReleaseTests(unittest.TestCase):
                 identifier = int(path.rsplit('/',1)[1])
                 artifact = next(value for value in receipt['artifacts'].values() if value['id'] == identifier)
                 return {**artifact, 'expired':False, 'size_in_bytes':len(archives[identifier])}
-            if '/branches/' in path: return {'protected':True}
+            if '/releases/tags/' in path: return {'tag_name':'v0.2.0','draft':False,'immutable':True}
+            if '/git/ref/tags/' in path: return {'ref':'refs/tags/v0.2.0','object':{'type':'commit','sha':'d'*40}}
             if path == 'repos/'+policy['repository']: return source_metadata
             return {'id':finalizer['repository_id'], 'visibility':'public'}
         certificate = {'buildSignerURI':'https://github.com/'+environment['BATHYSIGN_JOB_WORKFLOW_REF'], 'buildSignerDigest':'d'*40}

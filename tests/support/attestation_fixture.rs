@@ -117,13 +117,14 @@ impl Fixture {
         repository.runners = vec!["github-hosted".into()];
         repository.builder.repository = "trusted/builders".into();
         repository.builder.workflow = ".github/workflows/build.yml".into();
-        repository.builder.refs = vec!["refs/heads/main".into()];
+        repository.builder.refs = vec!["refs/tags/v0.2.0".into()];
+        repository.builder.commit = "b".repeat(40);
         let commit = "a".repeat(40);
         let digest = bathysign::sha256(b"disposable unsigned artifact");
         let source = "https://github.com/owner/app";
         let caller = format!("{source}/.github/workflows/release.yml@refs/heads/main");
         let builder =
-            "https://github.com/trusted/builders/.github/workflows/build.yml@refs/heads/main";
+            "https://github.com/trusted/builders/.github/workflows/build.yml@refs/tags/v0.2.0";
         let invocation = format!("{source}/actions/runs/123/attempts/2");
         let claims = BTreeMap::from([
             (8, "https://token.actions.githubusercontent.com".into()),

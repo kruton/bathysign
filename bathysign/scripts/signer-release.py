@@ -77,30 +77,43 @@ def allowed_ref(patterns, value):
 
 def verify_workflow_identity(builder):
     validate_workflow_identity(builder)
-    require(len(builder["refs"]) == 1 and builder["refs"][0].startswith("refs/heads/"), "one trusted builder branch required")
     meta = api(f"repos/{builder['repository']}")
     require(meta["id"] == builder["repository_id"] and meta["visibility"] == "public", "trusted workflow repository differs")
-    branch = builder["refs"][0][len("refs/heads/"):]
-    require(re.fullmatch(r"[A-Za-z0-9_.\-/]+", branch) and all(part not in ("", ".", "..") for part in branch.split("/")), "unsafe builder branch")
-    require(api(f"repos/{builder['repository']}/branches/{branch}")["protected"] is True, "trusted workflow branch is unprotected")
+    tag = builder["refs"][0][len("refs/tags/"):]
+    release = api(f"repos/{builder['repository']}/releases/tags/{tag}")
+    require(release.get("tag_name") == tag and release.get("draft") is False
+        and release.get("immutable") is True, "trusted workflow release is not published and immutable")
+    reference = api(f"repos/{builder['repository']}/git/ref/tags/{tag}")
+    require(reference.get("ref") == builder["refs"][0], "trusted release tag differs")
+    obj, seen = reference["object"], set()
+    for depth in range(9):
+        sha = obj.get("sha")
+        require(valid_hash(sha, 40) and sha not in seen, "invalid or cyclic tag object")
+        seen.add(sha)
+        if obj.get("type") == "commit":
+            require(sha == builder["commit"], "trusted release commit differs from policy pin")
+            return
+        require(obj.get("type") == "tag" and depth < 8, "unsupported tag object or annotation depth exceeded")
+        annotated = api(f"repos/{builder['repository']}/git/tags/{sha}")
+        require(annotated.get("sha") == sha, "annotated tag object differs")
+        obj = annotated["object"]
 
 
 def validate_workflow_identity(builder):
-    require(set(builder) == {"repository", "repository_id", "workflow", "refs"}, "unsupported workflow policy fields")
+    require(set(builder) == {"repository", "repository_id", "workflow", "refs", "commit"}, "unsupported workflow policy fields: exact release tag and commit pin required; migrate branch policies")
     require(re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", builder["repository"]), "invalid trusted repository")
     require(type(builder["repository_id"]) is int and builder["repository_id"] > 0, "invalid trusted repository ID")
     require(re.fullmatch(r"\.github/workflows/[A-Za-z0-9_-]+\.ya?ml", builder["workflow"]), "invalid trusted workflow")
-    require(isinstance(builder["refs"], list) and len(builder["refs"]) == 1, "one trusted branch required")
-    branch = builder["refs"][0].removeprefix("refs/heads/")
-    require(builder["refs"][0].startswith("refs/heads/") and re.fullmatch(r"[A-Za-z0-9_.\-/]+", branch)
-        and all(part not in ("", ".", "..") for part in branch.split("/")), "invalid trusted branch")
+    require(isinstance(builder["refs"], list) and len(builder["refs"]) == 1, "one exact trusted release tag required")
+    require(isinstance(builder["refs"][0], str) and re.fullmatch(r"refs/tags/v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z.-]+)?", builder["refs"][0]), "invalid trusted release tag")
+    require(valid_hash(builder["commit"], 40), "invalid trusted release commit pin")
 
 
 def verify_finalizer_certificate(policy, certificate):
     finalizer = policy["finalizer"]
     verify_workflow_identity(finalizer)
     expected = f"https://github.com/{finalizer['repository']}/{finalizer['workflow']}@{finalizer['refs'][0]}"
-    require(certificate["buildSignerURI"] == expected and valid_hash(certificate["buildSignerDigest"], 40), "final attestation builder differs")
+    require(certificate["buildSignerURI"] == expected and certificate["buildSignerDigest"] == finalizer["commit"], "final attestation builder differs")
     return expected, certificate["buildSignerDigest"]
 
 
@@ -119,8 +132,8 @@ def validate_policy(policy):
     for workflow in (builder, finalizer):
         validate_workflow_identity(workflow)
         require(workflow["repository"] != policy["repository"] and workflow["repository_id"] != policy["repository_id"], "trusted workflows must be separate from source")
-    require(all(finalizer[k] == builder[k] for k in ("repository", "repository_id", "refs"))
-        and finalizer["workflow"] != builder["workflow"], "finalizer must be separate in the same trusted repository and branch")
+    require(all(finalizer[k] == builder[k] for k in ("repository", "repository_id", "refs", "commit"))
+        and finalizer["workflow"] != builder["workflow"], "finalizer must be separate in the same trusted repository, release tag and commit")
     for name, profile in policy["profiles"].items():
         require(re.fullmatch(r"[a-z0-9-]{1,32}", name), "invalid profile")
         require(all(valid_hash(v) for v in profile["keys"].values() if isinstance(v, str)), "invalid key pin")
@@ -188,10 +201,11 @@ def validate_transaction(receipt, policy, source_run, profile):
 def verify_provenance(path, bundle, policy, source_run, summary):
     require(digest(bundle.read_bytes()) == summary["bundle_sha256"], "upstream bundle differs")
     builder = policy["builder"]
+    require(summary["builder_commit"] == builder["commit"], "builder commit differs from policy pin")
     verified = load(run("gh", "attestation", "verify", path, "--bundle", bundle,
         "--repo", policy["repository"],
         "--signer-workflow", f"{builder['repository']}/{builder['workflow']}",
-        "--signer-digest", summary["builder_commit"], "--source-digest", source_run["head_sha"],
+        "--signer-digest", builder["commit"], "--source-digest", source_run["head_sha"],
         "--source-ref", summary["ref"], "--deny-self-hosted-runners", "--format", "json"))
     require(len(verified) == 1, "ambiguous verified provenance")
     result = verified[0]["verificationResult"]
@@ -536,7 +550,7 @@ def final_predicate(policy, source_run_id, source_attempt, metadata, summaries, 
     expected = f"{trusted['repository']}/{trusted['workflow']}@{trusted['refs'][0]}"
     require(os.environ.get("BATHYSIGN_JOB_WORKFLOW_REF") == expected, "untrusted finalizer job identity")
     signer_commit = os.environ.get("BATHYSIGN_JOB_WORKFLOW_SHA", "")
-    require(valid_hash(signer_commit, 40), "missing platform finalizer revision")
+    require(signer_commit == trusted["commit"], "platform finalizer revision differs from policy pin")
     signer_uri = "https://github.com/" + expected
     dependencies = [{"uri": f"git+https://github.com/{trusted['repository']}@{trusted['refs'][0]}", "digest": {"gitCommit": signer_commit}}, *dependencies]
     # GitHub's attestation API requires its workflow source as the first entry.

@@ -66,11 +66,12 @@
       ],
       "builder": {
         "refs": [
-          "refs/heads/bathysign-v1"
+          "refs/tags/v0.2.0"
         ],
         "repository": "example/workflows",
         "repository_id": 1001,
-        "workflow": ".github/workflows/bathysign-attest.yml"
+        "workflow": ".github/workflows/bathysign-attest.yml",
+        "commit": "cccccccccccccccccccccccccccccccccccccccc"
       },
       "receipt_key": "receipt",
       "profiles": {
@@ -125,11 +126,12 @@
       },
       "finalizer": {
         "refs": [
-          "refs/heads/bathysign-v1"
+          "refs/tags/v0.2.0"
         ],
         "repository": "example/workflows",
         "repository_id": 1001,
-        "workflow": ".github/workflows/bathysign-finalize.yml"
+        "workflow": ".github/workflows/bathysign-finalize.yml",
+        "commit": "cccccccccccccccccccccccccccccccccccccccc"
       },
       "receipt_namespace": "bathysign"
     }

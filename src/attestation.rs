@@ -266,8 +266,8 @@ pub fn validate_claims(
         .as_deref()
         .ok_or_else(|| anyhow::anyhow!("builder commit missing"))?;
     ensure!(
-        builder_commit.len() == 40 && builder_commit.bytes().all(|b| b.is_ascii_hexdigit()),
-        "invalid builder commit"
+        builder_commit == repo.builder.commit,
+        "builder commit differs from policy pin"
     );
     ensure!(
         claims.runner_environment.as_deref() == Some("github-hosted")

@@ -673,7 +673,7 @@ async fn signing_admission_binds_repository_builder_run_attempt_event_and_caller
     repo.events = vec!["push".into()];
     repo.builder.repository = "trusted/builders".into();
     repo.builder.repository_id = 1001;
-    repo.builder.refs = vec!["refs/heads/main".into()];
+    repo.builder.refs = vec!["refs/tags/v0.2.0".into()];
     let mut profile = repo.profiles.values().next().unwrap().clone();
     profile.apk_artifact = "unsigned-{attempt}".into();
     profile.aab_artifact = "unsigned-{attempt}".into();
@@ -720,8 +720,12 @@ async fn signing_admission_binds_repository_builder_run_attempt_event_and_caller
             json!({"id":1001,"visibility":"public"}),
         ),
         (
-            "/repos/trusted/builders/branches/main".into(),
-            json!({"protected":true}),
+            "/repos/trusted/builders/releases/tags/v0.2.0".into(),
+            json!({"tag_name":"v0.2.0","draft":false,"immutable":true}),
+        ),
+        (
+            "/repos/trusted/builders/git/ref/tags/v0.2.0".into(),
+            json!({"ref":"refs/tags/v0.2.0","object":{"type":"commit","sha":repo.builder.commit}}),
         ),
         (
             "/repos/owner/app".into(),
@@ -777,10 +781,10 @@ async fn signing_admission_binds_repository_builder_run_attempt_event_and_caller
             "trusted builder repository differs",
         ),
         (
-            "/repos/trusted/builders/branches/main",
-            "/protected",
+            "/repos/trusted/builders/releases/tags/v0.2.0",
+            "/immutable",
             json!(false),
-            "branch is not protected",
+            "not published and immutable",
         ),
         (
             "/repos/owner/app",

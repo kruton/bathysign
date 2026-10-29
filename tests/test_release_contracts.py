@@ -123,14 +123,12 @@ class ReleaseContracts(unittest.TestCase):
         with mock.patch.object(subprocess, 'run'), self.assertRaisesRegex(SystemExit, 'Unexpected release entry'):
             self.verify()
 
-    def publish(self, existing=None):
+    def publish(self, existing=None, immutable=True, draft=False, release_commit=COMMIT):
         staged = {}
         calls = []
 
         def gh(args, **kwargs):
             calls.append(args)
-            if args[:3] == ['gh', 'release', 'view']:
-                return subprocess.CompletedProcess(args, 1 if existing is None else 0, stdout='{}')
             if args[:3] == ['gh', 'release', 'download']:
                 destination = Path(args[args.index('--dir') + 1])
                 files = existing if existing is not True else {p.name: p.read_bytes() for p in destination.parent.iterdir() if p.is_file()}
@@ -141,7 +139,15 @@ class ReleaseContracts(unittest.TestCase):
                     staged[Path(name).name] = Path(name).read_bytes()
             return subprocess.CompletedProcess(args, 0, stdout='')
 
-        with mock.patch.object(subprocess, 'run', side_effect=gh):
+        def api(path, *, allow_missing=False):
+            if allow_missing and existing is None:
+                return None
+            if '/releases/tags/' in path:
+                return {'tag_name':'v0.1.0', 'draft':draft, 'immutable':immutable}
+            return {'ref':'refs/tags/v0.1.0', 'object':{'type':'commit', 'sha':release_commit}}
+
+        with mock.patch.object(subprocess, 'run', side_effect=gh), \
+             mock.patch.object(release, 'github_release_api', side_effect=api):
             cli('publish-release.py', self.downloads, REF.removeprefix('refs/tags/'), COMMIT, self.evidence)
         return staged, calls
 
@@ -183,6 +189,30 @@ class ReleaseContracts(unittest.TestCase):
         staged, calls = self.publish(existing=True)
         self.assertEqual(staged, {})
         self.assertFalse(any(args[:3] == ['gh', 'release', 'create'] for args in calls))
+
+    def test_release_publication_requires_immutability_and_the_expected_commit(self):
+        for existing in (None, True):
+            with self.subTest(existing=existing):
+                with self.assertRaisesRegex(SystemExit, 'immutable'):
+                    self.publish(existing=existing, immutable=False)
+                with self.assertRaisesRegex(SystemExit, 'source commit differs'):
+                    self.publish(existing=existing, release_commit='b' * 40)
+        with self.assertRaisesRegex(SystemExit, 'Incomplete release draft'):
+            self.publish(existing=True, draft=True)
+
+    def test_publish_rejects_option_injection_before_any_command(self):
+        for tag, commit in [('--help', COMMIT), ('v0.2.0', '--hostname=evil.invalid')]:
+            with self.subTest(tag=tag, commit=commit), mock.patch.object(subprocess, 'run') as run:
+                with self.assertRaisesRegex(SystemExit, 'Invalid release'):
+                    cli('publish-release.py', self.downloads, tag, commit, self.evidence)
+                run.assert_not_called()
+
+    def test_release_lookup_failure_never_creates_or_downloads_a_release(self):
+        with mock.patch.object(subprocess, 'run') as run, \
+             mock.patch.object(release, 'github_release_api', side_effect=SystemExit('HTTP 503')):
+            with self.assertRaisesRegex(SystemExit, 'HTTP 503'):
+                cli('publish-release.py', self.downloads, 'v0.2.0', COMMIT, self.evidence)
+        self.assertFalse(any(call.args[0][:2] == ['gh', 'release'] for call in run.call_args_list))
 
     def test_conflicting_release_or_failed_container_attestation_aborts(self):
         with self.assertRaisesRegex(SystemExit, 'Existing release conflicts'):
