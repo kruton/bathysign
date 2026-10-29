@@ -1,0 +1,56 @@
+name: Bathysign collector container checks
+on:
+  workflow_call:
+    inputs:
+      arch:
+        type: string
+        required: true
+      target:
+        type: string
+        required: true
+      runner:
+        type: string
+        required: true
+      release:
+        type: boolean
+        default: false
+permissions:
+  contents: read
+  actions: read
+jobs:
+  build:
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Validate fixed architecture, target and runner mapping
+        env:
+          ARCH: ${{ inputs.arch }}
+          TARGET: ${{ inputs.target }}
+          RUNNER: ${{ inputs.runner }}
+        run: |
+          python3 - <<'PY'
+          import os
+          mapping = {'amd64': ('x86_64-unknown-linux-gnu', 'ubuntu-24.04'), 'arm64': ('aarch64-unknown-linux-gnu', 'ubuntu-24.04-arm')}
+          assert mapping.get(os.environ['ARCH']) == (os.environ['TARGET'], os.environ['RUNNER'])
+          PY
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          name: ${{ inputs.release && 'verified' || 'compared' }}-${{ inputs.target }}-${{ github.run_attempt }}
+          path: downloads
+      - name: Authenticate binary
+        if: inputs.release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh attestation verify downloads/*.tar.gz --bundle downloads/provenance.json --repo kruton/bathysign --signer-workflow kruton/bathysign/.github/workflows/release-build.yml --signer-digest "$GITHUB_SHA" --source-digest "$GITHUB_SHA" --source-ref "$GITHUB_REF" --deny-self-hosted-runners
+      - name: Build and compare collector containers
+        env:
+          ARCH: ${{ inputs.arch }}
+        run: bash scripts/release-container.sh "$ARCH" downloads/*.tar.gz
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: container-${{ inputs.arch }}-${{ github.run_attempt }}
+          path: container-output/

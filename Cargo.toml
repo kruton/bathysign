@@ -38,12 +38,14 @@ hex = "0.4"
 hmac = "0.13"
 http = "1"
 hyper = { version = "1", features = ["server", "http1"] }
-hyper-util = { version = "=0.1.21", features = ["server", "tokio", "service"] }
+# Keep these versions compatible with the Hermit patches below.
+hyper-util = { version = "=0.1.14", features = ["server", "tokio", "service"] }
 ml-dsa = { version = "=0.1.1", features = ["zeroize"] }
 p256 = { version = "0.14", features = ["ecdsa"] }
 p384 = { version = "0.14", features = ["ecdsa"] }
 rand = "0.10"
-reqwest = { version = "0.13", default-features = false, features = ["json", "stream", "rustls-no-provider", "query"] }
+# Reqwest 0.13 unconditionally requires a platform TLS verifier absent on Hermit.
+reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls-webpki-roots-no-provider"] }
 rsa = { version = "0.9", features = ["sha2"] }
 rusqlite = { version = "0.41", features = ["bundled"], optional = true }
 rustls = { version = "0.23", default-features = false, features = ["std", "tls12"] }
@@ -60,8 +62,8 @@ sigstore-types = { git = "https://github.com/sigstore/sigstore-rust", rev = "e44
 sigstore-trust-root = { git = "https://github.com/sigstore/sigstore-rust", rev = "e441356183ffd664ffe559721a08d9414c9d8c2d", default-features = false }
 sigstore-verify = { git = "https://github.com/sigstore/sigstore-rust", rev = "e441356183ffd664ffe559721a08d9414c9d8c2d", default-features = false }
 subtle = "2"
-tokio = { version = "=1.54.1", features = ["rt", "macros", "net", "time", "sync", "io-util", "fs"] }
-tokio-util = { version = "=0.7.20", default-features = false }
+tokio = { version = "=1.45.0", features = ["rt", "macros", "net", "time", "sync", "io-util", "fs"] }
+tokio-util = { version = "=0.7.15", default-features = false }
 tokio-rustls = { version = "0.26", default-features = false, features = ["tls12"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }

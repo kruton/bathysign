@@ -42,6 +42,7 @@ jobs:
   build:
     needs: [validate, coverage]
     strategy:
+      fail-fast: false
       matrix:
         include:
           - target: x86_64-unknown-linux-gnu
@@ -61,40 +62,12 @@ jobs:
       runner: ${{ matrix.runner }}
   integration:
     needs: build
-    runs-on: ubuntu-26.04
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-        with:
-          persist-credentials: false
-      - uses: ./bathysign/runtime
-        with:
-          tools: python java
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
-        with:
-          pattern: verified-*-${{ github.run_attempt }}
-          path: downloads
-      - name: Authenticate integration inputs
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: python3 scripts/verify-release.py downloads --commit "$GITHUB_SHA" --ref "$GITHUB_REF"
-      - name: Prepare integration environment
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y qemu-system-x86 virtiofsd
-          mkdir -p host guest
-          tar -xf downloads/verified-x86_64-unknown-linux-gnu-*/bathysign-*.tar.gz -C host
-          tar -xf downloads/verified-x86_64-unknown-hermit-*/bathysign-*.tar.gz -C guest
-          docker build -t integration-builder -f deploy/build/Dockerfile .
-      - name: Android reference verification (required)
-        run: |
-          java_home=$(mise -C bathysign/runtime where java)
-          docker run --rm -v "$PWD:/src" -v "$java_home:$java_home:ro" -v "$ANDROID_HOME:$ANDROID_HOME:ro" -w /src integration-builder python3 scripts/test-android.py --java-home "$java_home" --android-sdk "$ANDROID_HOME"
-      - name: Boot exact release appliance and exercise exact release collector
-        run: python3 tests/qemu-smoke.py --tcg --loader "$PWD/guest/bin/hermit-loader" --image "$PWD/guest/bin/bathysign" --admin "$PWD/host/bin/bathysign-admin" --collector "$PWD/host/bin/bathysign-collector"
-      - name: Action trust and publishing contracts
-        run: |
-          bash bathysign/scripts/install-trust.sh /tmp/release-trust
-          /tmp/release-trust/bin/python -m unittest discover -s bathysign/tests
+    uses: ./.github/workflows/build-integration.yml
+    permissions:
+      contents: read
+      actions: read
+    with:
+      release: true
   containers:
     needs: [build, integration]
     uses: ./.github/workflows/release-container.yml
