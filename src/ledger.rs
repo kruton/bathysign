@@ -56,7 +56,7 @@ impl Ledger {
         let client = crate::network::client_builder()?
             .https_only(true)
             .redirect(reqwest::redirect::Policy::none())
-            .tls_certs_merge([ca])
+            .add_root_certificate(ca)
             .timeout(std::time::Duration::from_secs(30))
             .build()?;
         let token = read_secret(&config.audit_token)?;

@@ -5,15 +5,18 @@
   ],
   "packageRules": [
     {
-      "description": "Update Tokio and tokio-util together with the Hermit Tokio fork.",
+      "description": "Review networking upgrades together with the Hermit runtime and vendored socket/connector patches.",
       "matchManagers": ["cargo"],
       "matchPackageNames": [
         "tokio",
         "tokio-util",
+        "socket2",
+        "hyper-util",
+        "reqwest",
         "https://github.com/hermit-os/tokio",
       ],
-      "groupName": "tokio dependencies",
-      "groupSlug": "tokio",
+      "groupName": "Hermit networking dependencies",
+      "groupSlug": "hermit-networking",
       "separateMajorMinor": false,
     },
     {

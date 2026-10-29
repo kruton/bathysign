@@ -4,7 +4,7 @@
 # Ubuntu 26.04 is a supported GitHub-hosted label in actions/runner-images.
 set -euo pipefail
 if [ "$#" -eq 0 ]; then
-  set -- .github/workflows/sonar.yml .github/workflows/coverage.yml .github/workflows/release.yml .github/workflows/release-build.yml .github/workflows/release-container.yml .github/workflows/bathysign-ci.yml .github/workflows/bathysign-attest.yml .github/workflows/bathysign-finalize.yml .github/workflows/bathysign-publish.yml
+  set -- .github/workflows/build-checks.yml .github/workflows/build.yml .github/workflows/build-integration.yml .github/workflows/container-build.yml .github/workflows/sonar.yml .github/workflows/coverage.yml .github/workflows/release.yml .github/workflows/release-build.yml .github/workflows/release-container.yml .github/workflows/bathysign-ci.yml .github/workflows/bathysign-attest.yml .github/workflows/bathysign-finalize.yml .github/workflows/bathysign-publish.yml
 fi
 exec go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12 \
   -ignore 'label "ubuntu-26\.04" is unknown' \

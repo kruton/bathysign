@@ -463,7 +463,9 @@ async fn provisioning_exposes_no_operational_signing_routes() {
     let client = crate::network::client_builder()
         .unwrap()
         .no_proxy()
-        .tls_certs_merge([reqwest::Certificate::from_pem(identity.cert.pem().as_bytes()).unwrap()])
+        .add_root_certificate(
+            reqwest::Certificate::from_pem(identity.cert.pem().as_bytes()).unwrap(),
+        )
         .build()
         .unwrap();
     let origin = format!("https://localhost:{}", address.port());

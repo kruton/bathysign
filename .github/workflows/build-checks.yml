@@ -1,0 +1,63 @@
+name: Release build checks
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: release-checks-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            runner: ubuntu-24.04
+          - target: aarch64-unknown-linux-gnu
+            runner: ubuntu-24.04-arm
+          - target: x86_64-unknown-hermit
+            runner: ubuntu-24.04
+    uses: ./.github/workflows/build.yml
+    with:
+      target: ${{ matrix.target }}
+      runner: ${{ matrix.runner }}
+  integration:
+    needs: build
+    uses: ./.github/workflows/build-integration.yml
+  containers:
+    needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            target: x86_64-unknown-linux-gnu
+            runner: ubuntu-24.04
+          - arch: arm64
+            target: aarch64-unknown-linux-gnu
+            runner: ubuntu-24.04-arm
+    uses: ./.github/workflows/container-build.yml
+    with:
+      arch: ${{ matrix.arch }}
+      target: ${{ matrix.target }}
+      runner: ${{ matrix.runner }}
+  complete:
+    name: Release build checks passed
+    if: always()
+    needs: [build, integration, containers]
+    runs-on: ubuntu-26.04
+    steps:
+      - name: Require all build and integration jobs
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: |
+          python3 - <<'PYTHON'
+          import json, os
+          results = json.loads(os.environ['RESULTS'])
+          assert all(job['result'] == 'success' for job in results.values()), results
+          PYTHON

@@ -1,0 +1,90 @@
+name: Bathysign build and reproducibility checks
+on:
+  workflow_call:
+    inputs:
+      target:
+        type: string
+        required: true
+      runner:
+        type: string
+        required: true
+      offline-bundle:
+        type: boolean
+        default: false
+permissions:
+  contents: read
+  actions: read
+jobs:
+  build:
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        copy: [first, second]
+    runs-on: ${{ inputs.runner }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Validate fixed target and runner mapping
+        env:
+          TARGET: ${{ inputs.target }}
+          RUNNER: ${{ inputs.runner }}
+        run: |
+          python3 - <<'PY'
+          import os
+          mapping = {'x86_64-unknown-linux-gnu': 'ubuntu-24.04', 'aarch64-unknown-linux-gnu': 'ubuntu-24.04-arm', 'x86_64-unknown-hermit': 'ubuntu-24.04'}
+          assert mapping.get(os.environ['TARGET']) == os.environ['RUNNER']
+          PY
+      - name: Build in pinned environment
+        env:
+          TARGET: ${{ inputs.target }}
+        run: |
+          mkdir -p dist
+          docker build -t bathysign-builder -f deploy/build/Dockerfile .
+          docker volume create release-cargo
+          docker volume create release-rustup
+          docker run --name prepare -v "$PWD:/src" -v release-cargo:/usr/local/cargo -v release-rustup:/usr/local/rustup -w /src bathysign-builder bash scripts/release-build.sh "$TARGET" prepare
+          docker run --rm --network none -e CARGO_NET_OFFLINE=true -e BATHYSIGN_OFFLINE_BUILD=1 -v "$PWD:/src" -v release-cargo:/usr/local/cargo -v release-rustup:/usr/local/rustup -w /src bathysign-builder bash scripts/release-build.sh "$TARGET"
+
+      - name: Preserve offline rebuild inputs
+        if: inputs.offline-bundle && matrix.copy == 'first'
+        run: bash scripts/release-offline-bundle.sh
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        if: inputs.offline-bundle && matrix.copy == 'first'
+        with:
+          name: offline-${{ inputs.target }}-${{ github.run_attempt }}
+          path: offline-output/
+          if-no-files-found: error
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: release-${{ inputs.target }}-${{ matrix.copy }}-${{ github.run_attempt }}
+          path: release/
+          if-no-files-found: error
+  compare:
+    needs: build
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          name: release-${{ inputs.target }}-first-${{ github.run_attempt }}
+          path: first
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          name: release-${{ inputs.target }}-second-${{ github.run_attempt }}
+          path: second
+      - name: Compare independently built archives
+        run: python3 scripts/release.py compare first second --report first/reproducibility.json
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        if: inputs.offline-bundle
+        with:
+          name: offline-${{ inputs.target }}-${{ github.run_attempt }}
+          path: first/offline
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: compared-${{ inputs.target }}-${{ github.run_attempt }}
+          path: first/
+          if-no-files-found: error

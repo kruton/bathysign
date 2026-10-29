@@ -3,6 +3,12 @@
 set -euo pipefail
 release_target=$1
 release_mode=${2:-build}
+release_expected_rust=$(python3 -c 'import json; print(json.load(open("config/toolchain-pins.json"))["rust_version"])')
+read -r release_compiler release_actual_rust release_compiler_commit < <(rustc --version)
+if [[ "$release_actual_rust" != "$release_expected_rust" ]]; then
+  printf 'Release builder uses Rust %s; pinned Hermit standard library requires Rust %s\n' "$release_actual_rust" "$release_expected_rust" >&2
+  exit 1
+fi
 git config --global --add safe.directory "$PWD"
 export SOURCE_DATE_EPOCH="$(git show -s --format=%ct HEAD)"
 export BATHYSIGN_SOURCE_REVISION="$(git rev-parse HEAD)"

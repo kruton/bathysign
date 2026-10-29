@@ -1,9 +1,14 @@
 #!/usr/bin/env python3
 """Copy the pinned upstream kernel and apply checked signing-appliance fixes."""
 import argparse, hashlib, json, pathlib, shutil, subprocess
+from hermit_build import verify_network_sources
 ROOT=pathlib.Path(__file__).resolve().parents[1]
 p=argparse.ArgumentParser();p.add_argument("--out",required=True,type=pathlib.Path);a=p.parse_args()
 metadata=json.loads(subprocess.check_output(["cargo","metadata","--locked","--format-version","1","--filter-platform","x86_64-unknown-hermit"],cwd=ROOT))
+try:
+    verify_network_sources(metadata, ROOT)
+except ValueError as error:
+    raise SystemExit(str(error)) from error
 hermit=next(x for x in metadata["packages"] if x["name"]=="hermit")
 source=pathlib.Path(hermit["manifest_path"]).parent.parent/"kernel"
 pins=json.loads((ROOT/"kernel-patches/upstream-sha256.json").read_text())

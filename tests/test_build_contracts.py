@@ -121,7 +121,7 @@ class KernelPreparationContracts(unittest.TestCase):
                 return original_read(path, *args, **kwargs)
 
             def execute(output):
-                with mock.patch.object(sys, 'argv', ['prepare-kernel', '--out', str(output)]), mock.patch.object(Path, 'read_text', read), mock.patch.object(subprocess, 'check_output', return_value=json.dumps({'packages': [{'name': 'hermit', 'manifest_path': str(manifest)}]}).encode()), contextlib.redirect_stdout(io.StringIO()):
+                with mock.patch.dict(sys.modules, {'hermit_build': SimpleNamespace(verify_network_sources=mock.Mock())}), mock.patch.object(sys, 'argv', ['prepare-kernel', '--out', str(output)]), mock.patch.object(Path, 'read_text', read), mock.patch.object(subprocess, 'check_output', return_value=json.dumps({'packages': [{'name': 'hermit', 'manifest_path': str(manifest)}]}).encode()), contextlib.redirect_stdout(io.StringIO()):
                     runpy.run_path(str(ROOT / 'scripts/prepare-kernel.py'), run_name='__main__')
 
             destination = root / 'output'
