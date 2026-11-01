@@ -40,7 +40,7 @@ http = "1"
 hyper = { version = "1", features = ["server", "http1"] }
 # Keep these versions compatible with the Hermit patches below.
 hyper-util = { version = "=0.1.14", features = ["server", "tokio", "service"] }
-ml-dsa = { version = "=0.1.1", features = ["zeroize"] }
+ml-dsa = { version = "=0.1.2", features = ["zeroize"] }
 p256 = { version = "0.14", features = ["ecdsa"] }
 p384 = { version = "0.14", features = ["ecdsa"] }
 rand = "0.10"
