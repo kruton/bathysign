@@ -260,10 +260,18 @@ class ReleaseTests(unittest.TestCase):
             with mock.patch.object(release, 'rows', return_value=rows), self.assertRaisesRegex(ValueError, expected):
                 release.wait_staging(policy, source, 1)
         # A missing transaction can recover from published evidence, but cannot wait forever.
-        with mock.patch.object(release, 'rows', return_value=[]), mock.patch.object(release, 'recover_published', return_value={}), mock.patch.object(release.time, 'monotonic', side_effect=[0,0,0,2]), mock.patch.object(release.time, 'sleep') as sleep:
+        def rejected_rows(path, field=None):
+            return [{'context': 'bathysign/' + job, 'state': 'failure'}] if path.endswith('/statuses') else [staging]
+        with mock.patch.object(release, 'rows', side_effect=rejected_rows), mock.patch.object(release.time, 'sleep') as rejection_sleep:
+            with self.assertRaisesRegex(ValueError, 'signing transaction rejected for profile oss'):
+                release.wait_staging(policy, source, 1800)
+            rejection_sleep.assert_not_called()
+        with mock.patch.object(release, 'rows', return_value=[]), mock.patch.object(release, 'recover_published', return_value={}), mock.patch.object(release.time, 'monotonic', side_effect=[0,0,0,2]), mock.patch.object(release.time, 'sleep') as sleep, mock.patch('builtins.print') as progress:
             with self.assertRaisesRegex(ValueError, 'timed out'):
                 release.wait_staging(policy, source, 1)
             sleep.assert_called_once()
+            self.assertTrue(any('oss: staging release not yet available' in str(call) for call in progress.call_args_list))
+            self.assertTrue(all(call.kwargs.get('flush') is True for call in progress.call_args_list))
         with mock.patch.object(release, 'rows', return_value=[]), mock.patch.object(release, 'recover_published', return_value={'oss':(receipt,files)}):
             self.assertEqual(release.wait_staging(policy, source, 1)['oss'][0], receipt)
 

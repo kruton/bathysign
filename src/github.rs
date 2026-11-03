@@ -236,7 +236,7 @@ impl Github {
             .as_u64()
             .ok_or_else(|| anyhow::anyhow!("installation missing"))?;
         let permissions = if write_outputs {
-            json!({"actions":"read","attestations":"read","contents":"write"})
+            json!({"actions":"read","attestations":"read","contents":"write","statuses":"write"})
         } else {
             json!({"contents":"read"})
         };
@@ -297,6 +297,28 @@ impl Github {
             bounded(response, self.max_bytes).await
         }
     }
+
+    pub async fn publish_rejection(
+        &self,
+        repo: &Repository,
+        commit: &str,
+        job: &str,
+    ) -> Result<()> {
+        let response = self
+            .request(
+                reqwest::Method::POST,
+                &format!("/repos/{}/statuses/{commit}", repo.name),
+            )?
+            .json(
+                &json!({"state":"failure", "context":format!("bathysign/{job}"),
+                "description":"Signing rejected; inspect the signer audit ledger"}),
+            )
+            .send_monitored()
+            .await?;
+        bounded(response, 1024 * 1024).await?;
+        Ok(())
+    }
+
     pub async fn release(&self, repo: &Repository, job: &str, commit: &str) -> Result<Value> {
         let tag = format!("bathysign/{job}");
         let marker = format!("Bathysign job {job}; commit {commit}");

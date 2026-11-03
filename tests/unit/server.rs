@@ -368,6 +368,58 @@ fn claim() -> crate::ledger::Claimed {
 }
 
 #[tokio::test]
+async fn rejection_notice_uses_scoped_installation_and_exact_job_status() {
+    let (app, _, collector_task) = fixture().await;
+    let repo = app.loaded.config.repositories[0].clone();
+    let claim = claim();
+    let expected_path = format!("/repos/{}/statuses/{}", repo.name, claim.job.commit);
+    let requests = Arc::new(Mutex::new(Vec::new()));
+    let captured = requests.clone();
+    let (origin, task) = serve(Router::new().fallback(move |request: Request<Body>| {
+        let captured = captured.clone();
+        async move {
+            let path = request.uri().path().to_owned();
+            let bytes = axum::body::to_bytes(request.into_body(), 8192)
+                .await
+                .unwrap();
+            let body: Value = if bytes.is_empty() {
+                Value::Null
+            } else {
+                serde_json::from_slice(&bytes).unwrap()
+            };
+            captured.lock().unwrap().push((path.clone(), body));
+            Json(if path.ends_with("/installation") {
+                json!({"id":71})
+            } else if path.ends_with("/access_tokens") {
+                json!({"token":"test-token"})
+            } else {
+                json!({"id":1})
+            })
+        }
+    }))
+    .await;
+    publish_rejection_with_client(
+        &repo,
+        &claim,
+        crate::github::Github::local_test_client(&origin),
+    )
+    .await
+    .unwrap();
+    let records = requests.lock().unwrap();
+    assert_eq!(records.len(), 3);
+    assert_eq!(records[1].1["repository_ids"], json!([repo.id]));
+    assert_eq!(records[1].1["permissions"]["statuses"], "write");
+    assert_eq!(records[2].0, expected_path);
+    assert_eq!(
+        records[2].1,
+        json!({"state":"failure","context":"bathysign/test-job",
+        "description":"Signing rejected; inspect the signer audit ledger"})
+    );
+    task.abort();
+    collector_task.abort();
+}
+
+#[tokio::test]
 async fn job_outcomes_distinguish_retryable_errors_and_log_only_safe_diagnostics() {
     let (app, collector, task) = fixture().await;
     report_job(&app, claim(), Ok(()), std::time::Instant::now()).await;
