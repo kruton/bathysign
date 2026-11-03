@@ -16,7 +16,7 @@ def download(kind,name):
     return out
 source=download("apksig_source","apksig-source.tar.gz");legacy=download("apksig_legacy","apksig-legacy.jar");bundletool=download("bundletool","bundletool.jar")
 source_dir=a.cache/"source";source_dir.mkdir(exist_ok=True)
-with tarfile.open(source) as tar: tar.extractall(source_dir,filter="data")
+with tarfile.open(source) as tar: tar.extractall(source_dir,members=reference.source_members(tar),filter="data")
 classes=a.cache/"classes";old_classes=a.cache/"legacy";classes.mkdir(exist_ok=True);old_classes.mkdir(exist_ok=True)
 # Optional cloud-KMS modules require unrelated cloud SDKs. Core apksig sources
 # are compiled unmodified, including all v3.2 and ML-DSA verification code.
