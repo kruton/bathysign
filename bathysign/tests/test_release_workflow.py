@@ -91,6 +91,7 @@ class ReleaseTests(unittest.TestCase):
             return stream.getvalue()
         original = release.source_tree_digest(archive())
         self.assertEqual(original, release.source_tree_digest(archive(mtime=9000)))
+        self.assertEqual(original, release.source_tree_digest(archive(name=release.APKSIG_ARCHIVE_PREFIX + 'src/Main.java')))
         self.assertNotEqual(original, release.source_tree_digest(archive(content=b"class Changed {}")))
         self.assertNotEqual(original, release.source_tree_digest(archive(name="src/Other.java")))
         for data in (archive(name="../Main.java"), archive(symlink=True)):
@@ -432,6 +433,58 @@ class ReleaseTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'tool download differs'):
                 release.download_pinned('https://tools.example/tool', release.digest(data), root/'missing.jar')
 
+
+    def test_tool_download_retries_transient_http_errors_and_keeps_hash_checks(self):
+        root = Path(self.tmp.name)/self._testMethodName
+        root.mkdir()
+        tool, data = root/'tool.jar', b'pinned tool'
+        url = 'https://tools.example/tool'
+        for status in (408, 429, 500, 502, 503, 504):
+            with self.subTest(status=status), mock.patch.object(release.urllib.request, 'urlopen', side_effect=[
+                release.urllib.error.HTTPError(url, status, 'temporary', {}, None), io.BytesIO(data),
+            ]) as fetch, mock.patch.object(release.time, 'sleep') as sleep:
+                release.download_pinned(url, release.digest(data), tool)
+                self.assertEqual(tool.read_bytes(), data)
+                self.assertEqual(fetch.call_count, 2)
+                sleep.assert_called_once_with(1)
+                tool.unlink()
+        with mock.patch.object(release.urllib.request, 'urlopen', side_effect=[
+            release.urllib.error.HTTPError(url, 503, 'temporary', {}, None), io.BytesIO(b'wrong'),
+        ]) as fetch, mock.patch.object(release.time, 'sleep'):
+            with self.assertRaisesRegex(ValueError, 'tool download differs'):
+                release.download_pinned(url, release.digest(data), tool)
+            self.assertEqual(fetch.call_count, 2)
+            self.assertFalse(tool.exists())
+
+    def test_tool_download_retries_network_and_partial_read_failures(self):
+        root = Path(self.tmp.name)/self._testMethodName
+        root.mkdir()
+        tool, data = root/'tool.jar', b'pinned tool'
+        url = 'https://tools.example/tool'
+        response = mock.MagicMock()
+        response.__enter__.return_value.read.side_effect = release.http.client.IncompleteRead(b'partial')
+        with mock.patch.object(release.urllib.request, 'urlopen', side_effect=[
+            release.urllib.error.URLError('connection reset'), TimeoutError('timeout'), response, io.BytesIO(data),
+        ]) as fetch, mock.patch.object(release.time, 'sleep') as sleep:
+            release.download_pinned(url, release.digest(data), tool)
+            self.assertEqual(fetch.call_count, 4)
+            self.assertEqual(sleep.call_args_list, [mock.call(1), mock.call(2), mock.call(4)])
+            self.assertEqual(tool.read_bytes(), data)
+            response.__exit__.assert_called_once()
+
+    def test_tool_download_retry_limit_and_permanent_failures(self):
+        root = Path(self.tmp.name)/self._testMethodName
+        root.mkdir()
+        tool, url = root/'tool.jar', 'https://tools.example/tool'
+        for status, attempts in ((503, 4), (401, 1), (403, 1), (404, 1)):
+            with self.subTest(status=status), mock.patch.object(release.urllib.request, 'urlopen', side_effect=
+                release.urllib.error.HTTPError(url, status, 'failed', {}, None),
+            ) as fetch, mock.patch.object(release.time, 'sleep') as sleep:
+                with self.assertRaisesRegex(RuntimeError, f'{url} .*attempt {attempts}/4'):
+                    release.download_pinned(url, release.digest(b'pinned tool'), tool)
+                self.assertEqual(fetch.call_count, attempts)
+                self.assertEqual(sleep.call_count, attempts - 1)
+                self.assertFalse(tool.exists())
 
     def test_reference_tool_preparation_checks_pins_and_compiles_only_supported_sources(self):
         root = Path(self.tmp.name)/self._testMethodName

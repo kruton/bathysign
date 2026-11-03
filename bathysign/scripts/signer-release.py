@@ -4,15 +4,18 @@
 import argparse
 import base64
 import hashlib
+import http.client
 import io
 import json
 import os
 from pathlib import Path
 import re
 import subprocess
+import sys
 import tarfile
 import tempfile
 import time
+import urllib.error
 import urllib.request
 import zipfile
 
@@ -460,13 +463,26 @@ def unsigned_files(policy, source_run, receipt):
     return result
 
 
+APKSIG_ARCHIVE_PREFIX = 'platform_tools_apksig-179f60df00d242f6bb22acf828b0884eac2d5f72/'
+
+
+def source_members(archive):
+    for member in archive:
+        name = member.name.rstrip('/')
+        if name == APKSIG_ARCHIVE_PREFIX.rstrip('/') and member.isdir():
+            continue
+        if member.name.startswith(APKSIG_ARCHIVE_PREFIX):
+            member.name = member.name[len(APKSIG_ARCHIVE_PREFIX):]
+        yield member
+
+
 def source_tree_digest(data):
     # Gitiles regenerates tar member mtimes per download. Pin every source path
     # and its exact content instead of trusting mutable archive metadata.
     require(len(data) <= MAX_BYTES, "source archive too large")
     contents, seen, total = {}, set(), 0
     with tarfile.open(fileobj=io.BytesIO(data), mode="r:gz") as archive:
-        for member in archive:
+        for member in source_members(archive):
             name = member.name.rstrip("/")
             require(name and not name.startswith("/") and "\\" not in name and all(p not in ("", ".", "..") for p in name.split("/")), "unsafe source path")
             require(name not in seen and len(seen) < 20_000, "duplicate/excessive source entries")
@@ -485,8 +501,18 @@ def source_tree_digest(data):
 def download_pinned(url, sha256, path, source_tree=False):
     require(url.startswith("https://") and valid_hash(sha256), "invalid tool pin")
     if not path.exists():
-        with urllib.request.urlopen(url, timeout=120) as response:
-            data = response.read(MAX_BYTES + 1)
+        for attempt in range(4):
+            try:
+                with urllib.request.urlopen(url, timeout=120) as response:
+                    data = response.read(MAX_BYTES + 1)
+                break
+            except (urllib.error.URLError, TimeoutError, ConnectionError, http.client.IncompleteRead) as error:
+                retryable = not isinstance(error, urllib.error.HTTPError) or error.code in (408, 429, 500, 502, 503, 504)
+                if not retryable or attempt == 3:
+                    raise RuntimeError(f"pinned tool download failed: {url} (attempt {attempt + 1}/4): {error}") from error
+                delay = 2 ** attempt
+                print(f"Retrying pinned tool download {url} in {delay}s (attempt {attempt + 1}/4): {error}", file=sys.stderr)
+                time.sleep(delay)
         actual = source_tree_digest(data) if source_tree else digest(data)
         require(len(data) <= MAX_BYTES and actual == sha256, "tool download differs")
         path.write_bytes(data)
@@ -545,7 +571,7 @@ def prepare_tools(tool_dir):
     source.mkdir(exist_ok=True)
     with tarfile.open(tool_dir / "apksig-source.tar.gz") as archive:
         require(sum(m.size for m in archive.getmembers()) < MAX_BYTES, "source archive too large")
-        archive.extractall(source, filter="data")
+        archive.extractall(source, members=source_members(archive), filter="data")
     classes, legacy = tool_dir / "classes", tool_dir / "legacy"
     classes.mkdir(exist_ok=True)
     legacy.mkdir(exist_ok=True)

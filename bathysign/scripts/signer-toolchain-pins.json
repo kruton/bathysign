@@ -5,7 +5,7 @@
   "hermit_std_sha256": "a1fb9387e9cd18fabaa068d3829f3352b906ff592be92a30ec8786da83e0d900",
   "loader_url": "https://github.com/hermit-os/loader/releases/download/v0.5.7/hermit-loader-x86_64-multiboot",
   "loader_sha256": "c31a2b499a5c073b3de17ef1d26b60ac9a41986a6d17d8d73c4b4ce0c15dc345",
-  "apksig_source_url": "https://android.googlesource.com/platform/tools/apksig/+archive/179f60df00d242f6bb22acf828b0884eac2d5f72.tar.gz",
+  "apksig_source_url": "https://github.com/aosp-mirror-neo/platform_tools_apksig/archive/179f60df00d242f6bb22acf828b0884eac2d5f72.tar.gz",
   "sigstore_revision": "f950b1b683560aadf7737539f8d7eaa656a9f0c0",
   "apksig_legacy_url": "https://dl.google.com/dl/android/maven2/com/android/tools/build/apksig/9.4.1/apksig-9.4.1.jar",
   "apksig_legacy_sha256": "7ae2e5980c77d853e3513074ee7c822bbdcdcde1668889d17faa7fe8bc8aa821",
