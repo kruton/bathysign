@@ -232,6 +232,7 @@ impl OutputJob<'_> {
         let artifact_profile = self.artifact_profile;
         let github = self.github;
         let active = self.active;
+        tracing::info!(job=%claim.job.id, "verifying builder and source run");
         github.verify_builder_identity(&repo.builder).await?;
         let metadata = github.get(&format!("/repos/{}", repo.name)).await?;
         ensure!(
@@ -280,6 +281,7 @@ impl OutputJob<'_> {
             "workflow differs from policy"
         );
         let mut cache = BTreeMap::new();
+        tracing::info!(job=%claim.job.id, "downloading unsigned artifacts");
         let (apk_bytes, apk_meta) = artifact(
             github,
             repo,
@@ -299,6 +301,7 @@ impl OutputJob<'_> {
         )
         .await?;
         drop(cache);
+        tracing::info!(job=%claim.job.id, "verifying artifact provenance");
         let (apk_provenance, apk_bundle) =
             provenance(github, loaded, repo, claim, &apk_bytes, active).await?;
         let (aab_provenance, aab_bundle) =
@@ -343,6 +346,7 @@ impl OutputJob<'_> {
             apk_bundle,
             aab_bundle,
         } = inputs;
+        tracing::info!(job=%claim.job.id, "validating unsigned Android artifacts");
         apk::ensure_unsigned(&apk_bytes)?;
         let mut apk_entries = archive::read_limited(&apk_bytes, github.max_bytes as u64)?;
         let mut aab_entries = archive::read_limited(&aab_bytes, github.max_bytes as u64)?;
@@ -407,6 +411,7 @@ impl OutputJob<'_> {
         };
         ledger.event(claim,"inputs.verified",json!({"apk":apk_provenance,"aab":aab_provenance,"apk_artifact_id":apk_meta["id"],"aab_artifact_id":aab_meta["id"],"package":artifact_profile.package,"version_code":apk_id.version})).await?;
         stage.next("sign_outputs");
+        tracing::info!(job=%claim.job.id, "signing code transparency");
         let intent = |operation: &str, k: &crate::crypto::SigningKey| json!({"operation":operation,"key_fingerprint":k.fingerprint(),"policy_hash":claim.job.policy_hash,"lineage_sha256":signing.lineage_sha256,"apk_input_sha256":apk_input_sha256,"aab_input_sha256":aab_input_sha256});
         ledger
             .event(
@@ -431,6 +436,7 @@ impl OutputJob<'_> {
         ledger
             .event(claim, "sign.intent", intent("aab-cms", upload_key))
             .await?;
+        tracing::info!(job=%claim.job.id, "signing and verifying AAB");
         if let Some(active) = active {
             active.check()?;
         }
@@ -465,6 +471,7 @@ impl OutputJob<'_> {
         for operation in apk::planned_operations(&profile)? {
             ledger.event(claim, "sign.intent", operation).await?;
         }
+        tracing::info!(job=%claim.job.id, "signing and verifying APK");
         let aligned = archive::write_limited(&apk_entries, true, output_limit)?;
         drop(apk_entries);
         if let Some(active) = active {
@@ -545,6 +552,7 @@ impl OutputJob<'_> {
             .await?;
         outputs.insert("signing-receipt.dsse.json".into(), signed_receipt);
         stage.next("publish_outputs");
+        tracing::info!(job=%claim.job.id, "publishing signed outputs");
         let release = github
             .release(repo, &claim.job.id, &claim.job.commit)
             .await?;
@@ -552,6 +560,7 @@ impl OutputJob<'_> {
             .as_u64()
             .ok_or_else(|| anyhow::anyhow!("release ID missing"))?;
         for (name, bytes) in outputs {
+            tracing::info!(job=%claim.job.id, asset=%name, "uploading signed output");
             let digest = crate::sha256(&bytes);
             let asset = github.upload(repo, release_id, &name, bytes).await?;
             ledger

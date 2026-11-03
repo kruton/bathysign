@@ -385,13 +385,22 @@ def wait_staging(policy, source_run, timeout):
     pending = set(policy["profiles"])
     found = {}
     deadline = time.monotonic() + timeout
+    print(f"Waiting up to {timeout}s for signing transactions for profiles: {', '.join(sorted(pending))}", flush=True)
     while pending:
+        statuses = rows(f"repos/{policy['repository']}/commits/{source_run['head_sha']}/statuses")
+        for profile in sorted(pending):
+            job = f"v2-{policy['repository_id']}-{source_run['id']}-{source_run['run_attempt']}-{profile}-{policy['policy_hash']}"
+            status = next((s for s in statuses if s.get('context') == f'bathysign/{job}'), None)
+            require(status is None or status.get('state') not in ('failure', 'error'),
+                    f"signing transaction rejected for profile {profile}; inspect the signer audit ledger for job {job}")
         releases = rows(f"repos/{policy['repository']}/releases")
+        states = {}
         for profile in sorted(pending):
             job = f"v2-{policy['repository_id']}-{source_run['id']}-{source_run['run_attempt']}-{profile}-{policy['policy_hash']}"
             matches = [r for r in releases if r["tag_name"] == f"{staging_prefix(policy)}/{job}"]
             require(len(matches) <= 1, "ambiguous staging release")
             if not matches:
+                states[profile] = 'staging release not yet available'
                 continue
             release = matches[0]
             require(release["draft"] and release["target_commitish"] == source_run["head_sha"] and release["body"] == f"{staging_product(policy)} job {job}; commit {source_run['head_sha']}", "unmanaged staging release")
@@ -399,6 +408,7 @@ def wait_staging(policy, source_run, timeout):
             require(len({a['name'] for a in assets}) == len(assets), "duplicate asset")
             by_name = {a["name"]: a for a in assets}
             if "signing-receipt.dsse.json" not in by_name:
+                states[profile] = 'waiting for signed receipt'
                 continue
             envelope = download_asset(policy["repository"], by_name["signing-receipt.dsse.json"])
             receipt = verify_receipt(envelope, policy)
@@ -407,7 +417,9 @@ def wait_staging(policy, source_run, timeout):
             require(len(set(names)) == len(names) and {"app-signed.apk", "app-signed.aab", "apk-lineage.bin", "code_transparency_signed.jwt", "transparency-certificate.der", "unsigned-apk.sigstore.json", "unsigned-aab.sigstore.json"} <= set(names), "missing/duplicate output")
             require(all(re.fullmatch(r"[A-Za-z0-9_.-]+", n) and n not in (".", "..") for n in names), "unsafe output name")
             if not set(names + ["signing-receipt.json"]) <= set(by_name):
+                states[profile] = 'waiting for output assets'
                 continue
+            print(f"{profile}: verifying signed transaction and downloading outputs", flush=True)
             files = {n: download_asset(policy["repository"], by_name[n]) for n in names}
             for output in receipt["outputs"]:
                 require(len(files[output["name"]]) == output["bytes"] and digest(files[output["name"]]) == output["sha256"], "signed output differs")
@@ -416,13 +428,16 @@ def wait_staging(policy, source_run, timeout):
             files.update({"signing-receipt.dsse.json": envelope, "signing-receipt.json": plain})
             verify_trust_evidence(receipt, files, policy)
             found[profile] = (receipt, files)
+            print(f"{profile}: signed transaction verified", flush=True)
         if pending - found.keys():
             recovered = recover_published(policy, source_run, releases)
             for profile in pending - found.keys():
                 if profile in recovered:
                     found[profile] = recovered[profile]
+                    print(f"{profile}: recovered verified published transaction", flush=True)
         pending -= found.keys()
         if pending:
+            print('Still waiting for signing: ' + '; '.join(f'{profile}: {states[profile]}' for profile in sorted(pending)), flush=True)
             require(time.monotonic() < deadline, "timed out waiting for signing transactions")
             time.sleep(min(15, max(0, deadline - time.monotonic())))
     return found
@@ -571,6 +586,7 @@ def final_predicate(policy, source_run_id, source_attempt, metadata, summaries, 
 
 
 def prepare(policy_path, source_run_id, source_attempt, out, tool_dir):
+    print('Validating signing policy and source run', flush=True)
     policy = load(policy_path.read_bytes())
     validate_policy(policy)
     require(os.environ["GITHUB_REPOSITORY"] == policy["repository"], "finalizer repository differs")
@@ -582,10 +598,12 @@ def prepare(policy_path, source_run_id, source_attempt, out, tool_dir):
     require(source_run["event"] == "push" and source_run["head_repository"]["id"] == policy["repository_id"], "ineligible source run")
     require(source_run["path"] in policy["callers"], "ineligible caller workflow")
     out.mkdir(exist_ok=False, parents=True)
+    print('Preparing Android verification tools', flush=True)
     prepare_tools(tool_dir)
     transactions = wait_staging(policy, source_run, 1800)
     dependencies, summaries = [], {}
     for profile, (receipt, files) in transactions.items():
+        print(f'{profile}: verifying original artifacts, provenance, and Android signatures', flush=True)
         root = out / profile
         root.mkdir()
         inputs = unsigned_files(policy, source_run, receipt)
@@ -602,6 +620,7 @@ def prepare(policy_path, source_run_id, source_attempt, out, tool_dir):
         preserve_payload(inputs["apk"], files["app-signed.apk"], {"META-INF/code_transparency_signed.jwt"})
         preserve_payload(inputs["aab"], files["app-signed.aab"], {"BUNDLE-METADATA/com.android.tools.build.bundletool/code_transparency_signed.jwt", "META-INF/MANIFEST.MF", "META-INF/SIGNER.SF", "META-INF/SIGNER.RSA"})
         android_verify(root, files, receipt, tool_dir)
+        print(f'{profile}: Android verification complete', flush=True)
         dependencies.append({"uri": f"urn:bathysign:receipt:{profile}", "digest": {"sha256": digest(files['signing-receipt.dsse.json'])}})
         summaries[profile] = {"job_id": receipt["job"]["id"], "receipt_sha256": digest(files["signing-receipt.dsse.json"]), "keys": receipt["keys"], "lineage": receipt["lineage"]}
     dependencies.extend([{"uri": f"git+https://github.com/{policy['repository']}", "digest": {"gitCommit": source_run["head_sha"]}}, {"uri": "urn:bathysign:policy", "digest": {"sha256": policy["policy_hash"]}}, {"uri": "urn:bathysign:implementation", "digest": {"gitCommit": policy["signer_revision"]}}])

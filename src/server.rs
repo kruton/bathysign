@@ -264,6 +264,7 @@ pub async fn run(loaded: Loaded) -> Result<()> {
             };
             match worker.ledger.claim().await {
                 Ok(Some(claim)) => {
+                    tracing::info!(job=%claim.job.id, attempt=claim.attempt, "signing job claimed");
                     let _active = crate::metrics::ActiveJob::start();
                     if claim.attempt > 1 {
                         crate::metrics::observe("job_retry", true, std::time::Instant::now());
@@ -336,6 +337,7 @@ async fn report_job(
     crate::metrics::observe("job", result.is_ok(), started);
     match result {
         Ok(()) => {
+            tracing::info!(job=%claim.job.id, elapsed_secs=started.elapsed().as_secs(), "signing job completed");
             let _ = worker.ledger.finish(&claim, "complete").await;
         }
         Err(error) => {
@@ -363,6 +365,9 @@ async fn report_job(
                 .await
                 .is_ok()
             {
+                if !retry && publish_rejection(worker, &claim).await.is_err() {
+                    tracing::warn!(job=%claim.job.id, "could not publish signing rejection notice");
+                }
                 let _ = worker
                     .ledger
                     .finish(&claim, if retry { "retry" } else { "rejected" })
@@ -370,6 +375,32 @@ async fn report_job(
             }
         }
     }
+}
+
+async fn publish_rejection(worker: &App, claim: &crate::ledger::Claimed) -> Result<()> {
+    let repo = worker
+        .loaded
+        .config
+        .repositories
+        .iter()
+        .find(|repo| repo.id == claim.job.repository_id)
+        .ok_or_else(|| anyhow::anyhow!("repository is not allowed"))?;
+    let github = crate::github::Github::connect(&worker.loaded.config).await?;
+    publish_rejection_with_client(repo, claim, github).await
+}
+
+async fn publish_rejection_with_client(
+    repo: &crate::config::Repository,
+    claim: &crate::ledger::Claimed,
+    github: crate::github::Github,
+) -> Result<()> {
+    let github = github.installation(repo).await?;
+    // This notice only stops waiting. It never authorizes signed outputs, and
+    // deliberately contains no error strings, credentials, or artifact URLs.
+    github
+        .publish_rejection(repo, &claim.job.commit, &claim.job.id)
+        .await?;
+    Ok(())
 }
 
 fn app_router(state: App) -> Router {

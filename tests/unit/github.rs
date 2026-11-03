@@ -116,6 +116,33 @@ fn repository() -> Repository {
     config.repositories[0].clone()
 }
 
+#[tokio::test]
+async fn rejection_status_binds_commit_and_transaction_without_error_details() {
+    let repo = repository();
+    let commit = "a".repeat(40);
+    let job = "v2-42-123-4-google-policyhash";
+    let path = format!("/repos/{}/statuses/{commit}", repo.name);
+    let payload = json!({"state":"failure", "context":format!("bathysign/{job}"),
+        "description":"Signing rejected; inspect the signer audit ledger"});
+    let (github, task) = fixture(vec![
+        Exchange::json("POST", &path, json!({"id":1})).body(payload.clone()),
+    ]);
+    github.publish_rejection(&repo, &commit, job).await.unwrap();
+    task.join().unwrap();
+
+    // Missing App permission must surface as a failure, rather than claiming
+    // that the finalizer has been notified.
+    let mut denied = Exchange::json("POST", &path, json!({"message":"Forbidden"})).body(payload);
+    denied.response = denied.response.replacen("200 OK", "403 Forbidden", 1);
+    let (github, task) = fixture(vec![denied]);
+    let error = github
+        .publish_rejection(&repo, &commit, job)
+        .await
+        .unwrap_err();
+    assert_eq!(error.downcast_ref::<HttpFailure>().unwrap().0, 403);
+    task.join().unwrap();
+}
+
 #[test]
 fn requests_keep_credentials_scoped_and_validate_paths() {
     let (mut github, task) = fixture(vec![]);
@@ -208,7 +235,7 @@ async fn installation_tokens_are_repository_scoped_and_least_privileged() {
     let repo = repository();
     for write in [false, true] {
         let permissions = if write {
-            json!({"actions":"read","attestations":"read","contents":"write"})
+            json!({"actions":"read","attestations":"read","contents":"write","statuses":"write"})
         } else {
             json!({"contents":"read"})
         };
