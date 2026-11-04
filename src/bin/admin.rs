@@ -13,6 +13,7 @@ struct Cli {
     #[command(subcommand)]
     command: Command,
 }
+
 #[derive(Subcommand)]
 enum Command {
     /// Fetch and authenticate a first checkpoint for explicit auditor initialization.
@@ -125,6 +126,7 @@ enum Command {
         max_bytes: usize,
     },
 }
+
 fn read(path: &std::path::Path, max: usize) -> Result<Lineage> {
     ensure!(
         std::fs::metadata(path)?.len() <= max as u64,
@@ -132,6 +134,7 @@ fn read(path: &std::path::Path, max: usize) -> Result<Lineage> {
     );
     Lineage::read(&std::fs::read(path)?, max)
 }
+
 fn write(path: &std::path::Path, lineage: &Lineage, max: usize) -> Result<()> {
     use std::io::Write;
     let bytes = lineage.file()?;
@@ -144,6 +147,7 @@ fn write(path: &std::path::Path, lineage: &Lineage, max: usize) -> Result<()> {
     out.sync_all()?;
     report(lineage)
 }
+
 fn report(lineage: &Lineage) -> Result<()> {
     println!(
         "{}",
@@ -153,6 +157,7 @@ fn report(lineage: &Lineage) -> Result<()> {
     );
     Ok(())
 }
+
 fn main() -> Result<()> {
     let cli = Cli::parse();
     match cli.command {

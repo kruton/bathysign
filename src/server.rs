@@ -148,6 +148,7 @@ async fn webhook(
     observation.complete();
     Ok((StatusCode::ACCEPTED, Json(json!({"job_ids":jobs}))))
 }
+
 pub async fn serve_tls(
     router: Router,
     listen: &str,
@@ -208,6 +209,7 @@ pub async fn serve_tls(
         });
     }
 }
+
 pub async fn run(loaded: Loaded) -> Result<()> {
     use rand::TryRng;
     let mut entropy = [0; 32];

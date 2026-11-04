@@ -420,6 +420,7 @@ impl<R> HttpConnector<R> {
         {
             self.config_mut().interface = Some(interface);
         }
+
         #[cfg(not(any(target_os = "android", target_os = "fuchsia", target_os = "linux")))]
         {
             let interface = std::ffi::CString::new(interface)

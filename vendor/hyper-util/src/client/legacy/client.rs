@@ -573,6 +573,7 @@ where
                                     tx.ready().await.map_err(Error::tx)?;
                                     PoolTx::Http2(tx)
                                 }
+
                                 #[cfg(not(feature = "http2"))]
                                 panic!("http2 feature is not enabled");
                             } else {
@@ -661,6 +662,7 @@ where
                                         }
                                     }
                                 }
+
                                 #[cfg(not(feature = "http1"))] {
                                     panic!("http1 feature is not enabled");
                                 }
@@ -1067,6 +1069,7 @@ impl Builder {
             pool_timer: None,
         }
     }
+
     /// Set an optional timeout for idle sockets being kept-alive.
     /// A `Timer` is required for this to take effect. See `Builder::pool_timer`
     ///
@@ -1678,6 +1681,7 @@ impl Error {
             ..self
         }
     }
+
     fn is_canceled(&self) -> bool {
         matches!(self.kind, ErrorKind::Canceled)
     }

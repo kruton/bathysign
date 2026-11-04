@@ -15,11 +15,13 @@ struct Server {
     origin: String,
     task: tokio::task::JoinHandle<()>,
 }
+
 impl Drop for Server {
     fn drop(&mut self) {
         self.task.abort();
     }
 }
+
 impl Server {
     async fn start() -> Self {
         static INIT: Once = Once::new();
@@ -38,11 +40,13 @@ impl Server {
             task,
         }
     }
+
     fn get(&self, path: &str) -> reqwest::RequestBuilder {
         self.client
             .get(format!("{}{path}", self.origin))
             .bearer_auth(TOKEN)
     }
+
     fn post(&self, path: &str, body: Value) -> reqwest::RequestBuilder {
         self.client
             .post(format!("{}{path}", self.origin))
@@ -50,6 +54,7 @@ impl Server {
             .json(&body)
     }
 }
+
 fn activation() -> Activation {
     Activation {
         version: 2,
@@ -65,6 +70,7 @@ fn activation() -> Activation {
         )]),
     }
 }
+
 fn job() -> Job {
     Job {
         version: 2,

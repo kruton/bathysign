@@ -25,6 +25,7 @@ pub struct Authority {
     pub epoch: String,
     pub target: String,
 }
+
 impl Authority {
     pub fn validate(&self) -> Result<()> {
         ensure!(
@@ -51,6 +52,7 @@ pub struct Observation {
     pub bytes: String,
     pub verified_at: u64,
 }
+
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct Checkpoint {
@@ -63,10 +65,12 @@ pub struct Checkpoint {
     pub target: Option<String>,
     pub usable: bool,
 }
+
 impl Checkpoint {
     pub fn digest(&self) -> Result<String> {
         Ok(crate::sha256(&serde_json::to_vec(self)?))
     }
+
     pub fn follows(&self, previous: &Self) -> Result<()> {
         ensure!(
             self.authority == previous.authority,
@@ -88,10 +92,12 @@ impl Checkpoint {
         );
         Ok(())
     }
+
     pub fn verify(&self) -> Result<Verified> {
         self.authority.validate()?;
         self.verify_with_anchor(BOOTSTRAP)
     }
+
     fn verify_with_anchor(&self, anchor: &[u8]) -> Result<Verified> {
         ensure!(
             self.version == 1 && self.generation > 0,
@@ -266,6 +272,7 @@ impl Checkpoint {
 fn time(seconds: u64) -> Result<jiff::Timestamp> {
     Ok(jiff::Timestamp::from_second(seconds.try_into()?)?)
 }
+
 fn decode_role(name: &str) -> Result<String> {
     let name = name
         .strip_suffix(".json")
@@ -287,6 +294,7 @@ fn decode_role(name: &str) -> Result<String> {
     }
     Ok(String::from_utf8(decoded)?)
 }
+
 fn resolve_target(
     trusted: &TrustedMetadataSet,
     at: jiff::Timestamp,
@@ -337,6 +345,7 @@ pub struct Verified {
     pub expiry: u64,
     pub versions: [u64; 4],
 }
+
 impl Verified {
     pub fn binding(&self) -> Result<serde_json::Value> {
         let target = self
@@ -348,6 +357,7 @@ impl Verified {
             "checkpoint_sha256":self.checkpoint.digest()?,"target_sha256":crate::sha256(target),"valid_until":self.expiry}),
         )
     }
+
     pub fn active(self) -> Result<Active> {
         let target = self
             .target
@@ -367,11 +377,13 @@ pub struct Active {
     pub expiry: u64,
     pub versions: [u64; 4],
 }
+
 impl Active {
     pub fn check(&self) -> Result<()> {
         ensure!(self.expiry > crate::config::now()?, "trust expired");
         Ok(())
     }
+
     pub fn binding(&self) -> Result<serde_json::Value> {
         Ok(
             serde_json::json!({"authority":self.checkpoint.authority,"generation":self.checkpoint.generation,
@@ -388,10 +400,12 @@ struct Recording {
     now: u64,
     error: bool,
 }
+
 impl MetadataStore for RecordingStore {
     fn load(&self, name: &str) -> sigstore_tuf::Result<Option<Vec<u8>>> {
         Ok(self.0.lock().unwrap().files.get(name).cloned())
     }
+
     fn store(&self, name: &str, bytes: &[u8]) -> sigstore_tuf::Result<()> {
         let mut s = self.0.lock().unwrap();
         if name != "root.json"
@@ -422,6 +436,7 @@ struct HttpRepository {
     recording: RecordingStore,
     mirror: String,
 }
+
 impl HttpRepository {
     fn new(recording: RecordingStore) -> Result<Self> {
         Ok(Self {
@@ -435,6 +450,7 @@ impl HttpRepository {
                 .build()?,
         })
     }
+
     async fn fetch(&self, relative: &str, max: u64) -> sigstore_tuf::Result<Option<Vec<u8>>> {
         let operation = async {
             ensure!(
@@ -478,6 +494,7 @@ impl HttpRepository {
             .map_err(|e| sigstore_tuf::Error::transport_with_source("trust transport failed", e))
     }
 }
+
 impl Repository for HttpRepository {
     fn fetch_metadata<'a>(
         &'a self,
@@ -486,6 +503,7 @@ impl Repository for HttpRepository {
     ) -> sigstore_tuf::transport::FetchFuture<'a> {
         Box::pin(self.fetch(name, max))
     }
+
     fn fetch_target<'a>(
         &'a self,
         path: &'a str,
@@ -500,6 +518,7 @@ pub struct Refresh {
     pub network_failed: bool,
     pub complete: bool,
 }
+
 /// The updater's best-effort store only stages bytes in RAM. The caller must
 /// commit the resulting checkpoint before publishing an Active state.
 pub async fn refresh(previous: Option<&Checkpoint>, authority: &Authority) -> Result<Refresh> {
@@ -599,6 +618,7 @@ async fn refresh_from<R: Repository + 'static>(
 pub struct Manager {
     inner: Arc<Mutex<Runtime>>,
 }
+
 #[derive(Default)]
 struct Runtime {
     active: Option<Arc<Active>>,
@@ -606,6 +626,7 @@ struct Runtime {
     last_online: u64,
     cache_fallbacks: u64,
 }
+
 impl Manager {
     pub fn active(&self) -> Result<Arc<Active>> {
         let state = self
@@ -618,6 +639,7 @@ impl Manager {
         state.check()?;
         Ok(state)
     }
+
     pub fn metrics(&self) -> String {
         let state = self.inner.lock().unwrap();
         let expiry = state.active.as_ref().map_or(0, |s| s.expiry);
@@ -667,6 +689,7 @@ impl Manager {
         }
         out
     }
+
     pub async fn update(
         &self,
         ledger: &crate::ledger::Ledger,
@@ -712,6 +735,7 @@ impl Manager {
         ensure!(runtime.active.is_some(), "trust refresh did not complete");
         Ok(())
     }
+
     pub async fn run(self, ledger: crate::ledger::Ledger, authority: Authority) {
         let mut retry = 30;
         loop {
@@ -752,6 +776,7 @@ mod tests {
         let signature: Signature = key.sign(&canonical);
         serde_json::to_vec(&json!({"signed":value,"signatures":[{"keyid":id,"sig":hex::encode(signature.to_der().as_bytes())}]})).unwrap()
     }
+
     pub(super) fn fixture() -> (Vec<u8>, Checkpoint) {
         crate::initialize_test_crypto();
         let key = SigningKey::from_slice(&[7; 32]).unwrap();
@@ -822,6 +847,7 @@ mod tests {
             },
         )
     }
+
     #[test]
     fn authenticates_history_and_rejects_corruption_and_partial_authorization() {
         let (root, checkpoint) = fixture();
@@ -853,6 +879,7 @@ mod tests {
             "foreign bootstrap must be rejected"
         );
     }
+
     #[test]
     fn expired_bootstrap_can_rotate_to_a_fresh_root_but_cannot_authorize() {
         let (root, mut checkpoint) = fixture();
@@ -894,6 +921,7 @@ mod tests {
         });
         assert!(checkpoint.verify_with_anchor(&expired).is_err());
     }
+
     #[test]
     fn checkpoints_cannot_rewrite_history_or_change_epoch() {
         let (_, previous) = fixture();
@@ -909,6 +937,7 @@ mod tests {
         next.authority.epoch = "b".repeat(64);
         assert!(next.follows(&previous).is_err());
     }
+
     #[test]
     fn delegated_target_requires_its_authorized_parent_and_complete_path() {
         let (root, mut checkpoint) = fixture();
@@ -949,6 +978,7 @@ mod tests {
         checkpoint.observations.pop();
         assert!(checkpoint.verify_with_anchor(&root).is_err());
     }
+
     #[test]
     fn in_flight_job_keeps_its_checkpoint_and_expiry_is_still_enforced() {
         let (root, checkpoint) = fixture();
@@ -967,6 +997,7 @@ mod tests {
         Arc::get_mut(&mut pinned).unwrap().expiry = 0;
         assert!(pinned.check().is_err());
     }
+
     #[test]
     fn first_scrape_includes_zero_counters() {
         let metrics = crate::metrics::render();

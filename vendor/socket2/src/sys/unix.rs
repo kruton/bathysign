@@ -360,6 +360,7 @@ macro_rules! syscall {
         } else {
             Ok(res)
         }
+
         #[allow(unused_unsafe)]
         #[cfg(unix)]
         let res = unsafe { libc::$fn($($arg, )*) };
@@ -994,6 +995,7 @@ impl SockAddr {
                     .then(|| self.path_bytes(storage, true))
             })
         }
+
         #[cfg(not(any(target_os = "linux", target_os = "android")))]
         None
     }

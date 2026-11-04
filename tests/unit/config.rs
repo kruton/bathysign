@@ -9,6 +9,7 @@ struct Fixture {
     hybrid: Config,
     legacy: Config,
 }
+
 fn identity(directory: &Path, name: &str, algorithm: &str, bits: &str) -> KeySpec {
     let pem = directory.join(format!("{name}.key.pem"));
     let cert = directory.join(format!("{name}.pem"));
@@ -61,6 +62,7 @@ fn identity(directory: &Path, name: &str, algorithm: &str, bits: &str) -> KeySpe
         fingerprint: loaded.fingerprint(),
     }
 }
+
 fn store_lineage(directory: &Path, name: &str, lineage: &Lineage) -> (PathBuf, String) {
     let path = directory.join(name);
     std::fs::write(&path, lineage.file().unwrap()).unwrap();
@@ -164,12 +166,14 @@ static FIXTURE: LazyLock<Fixture> = LazyLock::new(|| {
 fn load(config: &Config) -> Result<Loaded> {
     load_json(&serde_json::to_value(config).unwrap())
 }
+
 fn load_json(value: &Value) -> Result<Loaded> {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("config.json");
     std::fs::write(&path, serde_json::to_vec(value).unwrap()).unwrap();
     Loaded::read(&path)
 }
+
 fn failure(config: &Config, expected: &str) {
     let error = load(config)
         .err()
@@ -179,6 +183,7 @@ fn failure(config: &Config, expected: &str) {
         "wanted {expected}: {error}"
     );
 }
+
 fn authority() -> crate::trust::Authority {
     crate::trust::Authority {
         authority: crate::trust::AUTHORITY.into(),

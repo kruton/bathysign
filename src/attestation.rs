@@ -24,6 +24,7 @@ pub fn verify(
         attempt,
     )
 }
+
 /// Verify an independently obtained SHA-256 subject digest. Callers accepting
 /// files should use verify(), which hashes the actual bytes itself.
 pub fn verify_digest(
@@ -53,6 +54,7 @@ pub fn verify_digest(
         attempt,
     )
 }
+
 #[allow(clippy::too_many_arguments)] // Each claim is independently bound to the approved invocation.
 pub fn verify_digest_with_root(
     digest: &str,

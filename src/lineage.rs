@@ -20,16 +20,19 @@ pub struct Node {
     pub next_algorithm: u32,
     pub signature: Vec<u8>,
 }
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Lineage {
     pub nodes: Vec<Node>,
 }
+
 impl Node {
     fn signed_data(&self) -> Result<Vec<u8>> {
         let mut data = lp(&self.certificate)?;
         data.extend(u32le(self.parent_algorithm));
         Ok(data)
     }
+
     fn encode(&self) -> Result<Vec<u8>> {
         let mut out = lp(&self.signed_data()?)?;
         out.extend(u32le(self.flags));
@@ -38,6 +41,7 @@ impl Node {
         Ok(out)
     }
 }
+
 impl Lineage {
     pub fn root(key: &SigningKey) -> Self {
         Self {
@@ -50,6 +54,7 @@ impl Lineage {
             }],
         }
     }
+
     pub fn read(bytes: &[u8], limit: usize) -> Result<Self> {
         ensure!(bytes.len() <= limit, "lineage exceeds byte limit");
         let mut r = Reader::new(bytes);
@@ -61,6 +66,7 @@ impl Lineage {
         r.finish()?;
         Self::from_proof(proof, limit)
     }
+
     pub fn from_proof(bytes: &[u8], limit: usize) -> Result<Self> {
         ensure!(bytes.len() <= limit, "lineage exceeds byte limit");
         let mut r = Reader::new(bytes);
@@ -88,6 +94,7 @@ impl Lineage {
         lineage.validate(true)?;
         Ok(lineage)
     }
+
     pub fn validate(&self, allow_rollback: bool) -> Result<()> {
         ensure!(!self.nodes.is_empty(), "empty lineage");
         let mut identities = BTreeSet::new();
@@ -123,9 +130,11 @@ impl Lineage {
         }
         Ok(())
     }
+
     pub fn append(&self, old: &SigningKey, new: &SigningKey, flags: u32) -> Result<Self> {
         self.append_certificate(old, &new.certificate, flags)
     }
+
     /// Authorize a successor without requiring possession of its private key.
     pub fn append_certificate(
         &self,
@@ -185,11 +194,13 @@ impl Lineage {
         out.validate(true)?;
         Ok(out)
     }
+
     pub fn last(&self) -> Result<&Node> {
         self.nodes
             .last()
             .ok_or_else(|| anyhow::anyhow!("empty lineage"))
     }
+
     pub fn proof(&self) -> Result<Vec<u8>> {
         let mut out = u32le(1);
         for node in &self.nodes {
@@ -197,21 +208,25 @@ impl Lineage {
         }
         Ok(out)
     }
+
     pub fn file(&self) -> Result<Vec<u8>> {
         let mut out = u32le(MAGIC);
         out.extend(u32le(1));
         out.extend(lp(&self.proof()?)?);
         Ok(out)
     }
+
     pub fn digest(&self) -> Result<String> {
         Ok(crate::sha256(&self.file()?))
     }
+
     pub fn fingerprints(&self) -> Vec<String> {
         self.nodes
             .iter()
             .map(|n| crate::sha256(&n.certificate))
             .collect()
     }
+
     pub fn extends(&self, old: &Self) -> bool {
         if old.nodes.len() > self.nodes.len() {
             return false;
@@ -229,6 +244,7 @@ impl Lineage {
                         || (i + 1 == old.nodes.len() && a.next_algorithm == 0))
             })
     }
+
     pub fn prefix_for(&self, cert: &[u8]) -> Result<Self> {
         let i = self
             .nodes

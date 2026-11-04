@@ -17,6 +17,7 @@ pub struct Store {
     db: Arc<Mutex<Connection>>,
     token_hash: [u8; 32],
 }
+
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CollectorConfig {
@@ -30,6 +31,7 @@ pub struct CollectorConfig {
 fn sql_integer(value: u64) -> Result<i64> {
     i64::try_from(value).context("integer exceeds SQLite range")
 }
+
 fn unsigned_column(row: &rusqlite::Row<'_>, index: usize) -> rusqlite::Result<u64> {
     let value: i64 = row.get(index)?;
     u64::try_from(value).map_err(|error| {
@@ -40,12 +42,15 @@ fn unsigned_column(row: &rusqlite::Row<'_>, index: usize) -> rusqlite::Result<u6
         )
     })
 }
+
 fn deadline(now: u64, delay: u64) -> Result<i64> {
     sql_integer(now.checked_add(delay).context("deadline overflow")?)
 }
+
 fn rejected(_: anyhow::Error) -> (StatusCode, &'static str) {
     (StatusCode::CONFLICT, "ledger operation rejected")
 }
+
 impl Store {
     pub fn open(path: &std::path::Path, token: &[u8]) -> Result<Self> {
         use sha2::{Digest, Sha256};
@@ -73,6 +78,7 @@ impl Store {
             token_hash: Sha256::digest(token).into(),
         })
     }
+
     pub fn trust_checkpoint(
         &self,
         authority: &str,
@@ -89,6 +95,7 @@ impl Store {
         );
         Ok(serde_json::from_slice(&body)?)
     }
+
     /// Host-only explicit initialization; the HTTPS API cannot create a head.
     pub fn trust_initialize(&self, checkpoint: &crate::trust::Checkpoint) -> Result<String> {
         ensure!(
@@ -98,10 +105,12 @@ impl Store {
         checkpoint.verify()?.active()?;
         self.trust_write(checkpoint, true)
     }
+
     pub fn trust_commit(&self, checkpoint: &crate::trust::Checkpoint) -> Result<String> {
         checkpoint.verify()?;
         self.trust_write(checkpoint, false)
     }
+
     fn trust_write(
         &self,
         checkpoint: &crate::trust::Checkpoint,
@@ -149,6 +158,7 @@ impl Store {
         tx.commit()?;
         Ok(digest)
     }
+
     fn auth(&self, headers: &HeaderMap) -> Result<()> {
         use sha2::{Digest, Sha256};
         let value = headers
@@ -160,6 +170,7 @@ impl Store {
         ensure!(bool::from(actual.ct_eq(&self.token_hash)), "unauthorized");
         Ok(())
     }
+
     pub fn activate(&self, a: &Activation) -> Result<()> {
         let repository_id = sql_integer(a.repository_id)?;
         let revision = sql_integer(a.revision)?;
@@ -236,6 +247,7 @@ impl Store {
         tx.commit()?;
         Ok(())
     }
+
     pub fn enqueue(&self, job: &Job) -> Result<()> {
         ensure!(
             job.version == 2
@@ -306,6 +318,7 @@ impl Store {
         tx.commit()?;
         Ok(())
     }
+
     pub fn claim(&self) -> Result<Option<Claimed>> {
         use rand::TryRng;
         let now = crate::config::now()?;
@@ -364,6 +377,7 @@ impl Store {
             attempt: attempt + 1,
         }))
     }
+
     pub fn event(&self, id: &str, lease: &str, kind: &str, data: Value) -> Result<()> {
         ensure!(kind.len() <= 100 && !kind.is_empty(), "invalid event kind");
         let mut db = self
@@ -380,6 +394,7 @@ impl Store {
         tx.commit()?;
         Ok(())
     }
+
     pub fn finish(&self, id: &str, lease: &str, status: &str) -> Result<()> {
         ensure!(
             ["complete", "rejected", "retry"].contains(&status),
@@ -423,6 +438,7 @@ impl Store {
         tx.commit()?;
         Ok(())
     }
+
     /// Snapshot durable state; fail the scrape rather than report healthy zeroes.
     pub fn metrics(&self) -> Result<String> {
         let db = self
@@ -475,6 +491,7 @@ impl Store {
         }
         Ok(out)
     }
+
     pub fn inspect(&self, id: &str) -> Result<Value> {
         let db = self
             .db
@@ -490,11 +507,13 @@ impl Store {
         Ok(json!({"job":serde_json::from_str::<Value>(&body)?,"status":status,"events":events}))
     }
 }
+
 fn valid_hash(s: &str) -> bool {
     s.len() == 64
         && s.bytes()
             .all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())
 }
+
 fn check_lease(tx: &rusqlite::Transaction<'_>, id: &str, lease: &str) -> Result<()> {
     let (actual,until,status,policy,active):(Option<String>,u64,String,String,String)=tx.query_row("SELECT j.lease,j.lease_until,j.status,j.policy,p.hash FROM jobs j JOIN policies p ON p.repo=j.repo WHERE j.id=?1",[id],|r|Ok((r.get(0)?,unsigned_column(r, 1)?,r.get(2)?,r.get(3)?,r.get(4)?)))?;
     ensure!(
@@ -506,6 +525,7 @@ fn check_lease(tx: &rusqlite::Transaction<'_>, id: &str, lease: &str) -> Result<
     );
     Ok(())
 }
+
 fn append(tx: &rusqlite::Transaction<'_>, job: &str, kind: &str, data: Value) -> Result<()> {
     let prior: Option<(u64, String)> = tx
         .query_row(
@@ -528,6 +548,7 @@ fn append(tx: &rusqlite::Transaction<'_>, job: &str, kind: &str, data: Value) ->
     )?;
     Ok(())
 }
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Event {
@@ -535,12 +556,14 @@ struct Event {
     kind: String,
     data: Value,
 }
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Finish {
     lease: String,
     status: String,
 }
+
 fn authorize(
     store: &Store,
     headers: &HeaderMap,
@@ -549,6 +572,7 @@ fn authorize(
         .auth(headers)
         .map_err(|_| (StatusCode::UNAUTHORIZED, "unauthorized"))
 }
+
 pub fn router(store: Store) -> Router {
     Router::new()
         .route("/v1/trust/{authority}/head", get(|State(s): State<Store>, h: HeaderMap, Path(a): Path<String>| async move {
@@ -650,6 +674,7 @@ pub fn router(store: Store) -> Router {
         .layer(axum::extract::DefaultBodyLimit::max(4 * 1024 * 1024))
         .with_state(store)
 }
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -754,6 +779,7 @@ mod tests {
         assert!(deadline(max, 1).is_err());
         assert!(deadline(u64::MAX, 1).is_err());
     }
+
     #[test]
     fn profile_history_is_preserved_and_stale_jobs_are_rejected() {
         use crate::ledger::{History, profile_job_id};
@@ -824,6 +850,7 @@ mod tests {
         assert_eq!(store.inspect(&oss.id).unwrap()["status"], "rejected");
         assert_eq!(store.inspect(&google.id).unwrap()["status"], "rejected");
     }
+
     #[test]
     fn expired_leases_recover_and_stop_at_retry_limit() {
         let dir = tempfile::tempdir().unwrap();
@@ -909,6 +936,7 @@ mod tests {
         );
         store.auth(&h).unwrap();
     }
+
     #[test]
     fn durable_dedup_claim_and_history() {
         let dir = tempfile::tempdir().unwrap();

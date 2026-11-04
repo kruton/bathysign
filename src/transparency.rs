@@ -26,12 +26,14 @@ pub struct CodeFile {
     pub apk_path: Option<String>,
     pub sha256: String,
 }
+
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Statement {
     pub code_related_file: Vec<CodeFile>,
     pub version: u32,
 }
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ArchiveResource {
@@ -40,6 +42,7 @@ pub struct ArchiveResource {
     pub sha256: String,
     pub file: std::path::PathBuf,
 }
+
 pub fn statement(aab: &Entries, archive: Option<&ArchiveResource>) -> Result<Statement> {
     let mut code = vec![];
     let mut native = BTreeMap::new();
@@ -124,6 +127,7 @@ pub fn statement(aab: &Entries, archive: Option<&ArchiveResource>) -> Result<Sta
         version: 1,
     })
 }
+
 pub fn check_apk(statement: &Statement, apk: &Entries) -> Result<()> {
     let dex: BTreeSet<_> = statement
         .code_related_file
@@ -156,6 +160,7 @@ pub fn check_apk(statement: &Statement, apk: &Entries) -> Result<()> {
     ensure!(code_count > 0, "APK contains no code");
     Ok(())
 }
+
 pub fn sign(statement: &Statement, key: &SigningKey) -> Result<Vec<u8>> {
     ensure!(
         key.algorithm() == RSA_SHA256,
@@ -172,6 +177,7 @@ pub fn sign(statement: &Statement, key: &SigningKey) -> Result<Vec<u8>> {
     verify(&jwt, statement, &key.certificate)?;
     Ok(jwt)
 }
+
 pub fn verify(jwt: &[u8], expected: &Statement, cert: &[u8]) -> Result<()> {
     let text = std::str::from_utf8(jwt)?;
     let parts: Vec<_> = text.split('.').collect();

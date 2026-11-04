@@ -179,12 +179,14 @@ impl<E> Builder<E> {
                 let conn = self.http1.serve_connection(io, service);
                 ConnState::H1 { conn }
             }
+
             #[cfg(feature = "http2")]
             Some(Version::H2) => {
                 let io = Rewind::new_buffered(io, Bytes::new());
                 let conn = self.http2.serve_connection(io, service);
                 ConnState::H2 { conn }
             }
+
             #[cfg(any(feature = "http1", feature = "http2"))]
             _ => ConnState::ReadVersion {
                 read_version: read_version(io),
@@ -476,23 +478,28 @@ where
                             let conn = builder.http1.serve_connection(io, service);
                             this.state.set(ConnState::H1 { conn });
                         }
+
                         #[cfg(feature = "http2")]
                         Version::H2 => {
                             let conn = builder.http2.serve_connection(io, service);
                             this.state.set(ConnState::H2 { conn });
                         }
+
                         #[cfg(any(not(feature = "http1"), not(feature = "http2")))]
                         _ => return Poll::Ready(Err(version.unsupported())),
                     }
                 }
+
                 #[cfg(feature = "http1")]
                 ConnStateProj::H1 { conn } => {
                     return conn.poll(cx).map_err(Into::into);
                 }
+
                 #[cfg(feature = "http2")]
                 ConnStateProj::H2 { conn } => {
                     return conn.poll(cx).map_err(Into::into);
                 }
+
                 #[cfg(any(not(feature = "http1"), not(feature = "http2")))]
                 _ => unreachable!(),
             }
@@ -631,23 +638,28 @@ where
                             let conn = builder.http1.serve_connection(io, service).with_upgrades();
                             this.state.set(UpgradeableConnState::H1 { conn });
                         }
+
                         #[cfg(feature = "http2")]
                         Version::H2 => {
                             let conn = builder.http2.serve_connection(io, service);
                             this.state.set(UpgradeableConnState::H2 { conn });
                         }
+
                         #[cfg(any(not(feature = "http1"), not(feature = "http2")))]
                         _ => return Poll::Ready(Err(version.unsupported())),
                     }
                 }
+
                 #[cfg(feature = "http1")]
                 UpgradeableConnStateProj::H1 { conn } => {
                     return conn.poll(cx).map_err(Into::into);
                 }
+
                 #[cfg(feature = "http2")]
                 UpgradeableConnStateProj::H2 { conn } => {
                     return conn.poll(cx).map_err(Into::into);
                 }
+
                 #[cfg(any(not(feature = "http1"), not(feature = "http2")))]
                 _ => unreachable!(),
             }

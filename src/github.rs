@@ -14,6 +14,7 @@ pub struct Github {
     api_origin: String,
     uploads_origin: String,
 }
+
 #[derive(Debug)]
 pub struct HttpFailure(pub u16);
 impl std::fmt::Display for HttpFailure {
@@ -21,12 +22,14 @@ impl std::fmt::Display for HttpFailure {
         write!(f, "HTTP request rejected ({})", self.0)
     }
 }
+
 impl std::error::Error for HttpFailure {}
 impl HttpFailure {
     pub fn retryable(&self) -> bool {
         [401, 403, 408, 429].contains(&self.0) || self.0 >= 500
     }
 }
+
 pub async fn bounded(response: reqwest::Response, limit: usize) -> Result<Vec<u8>> {
     let started = std::time::Instant::now();
     let result = bounded_inner(response, limit).await;
@@ -39,6 +42,7 @@ pub async fn bounded(response: reqwest::Response, limit: usize) -> Result<Vec<u8
     crate::metrics::observe("network_body", result.is_ok(), started);
     result
 }
+
 async fn bounded_inner(mut response: reqwest::Response, limit: usize) -> Result<Vec<u8>> {
     if !response.status().is_success() {
         return Err(HttpFailure(response.status().as_u16()).into());
@@ -65,6 +69,7 @@ async fn bounded_inner(mut response: reqwest::Response, limit: usize) -> Result<
     }
     Ok(out)
 }
+
 impl Github {
     #[cfg(test)]
     pub(crate) fn local_test_client(origin: &str) -> Self {
@@ -100,6 +105,7 @@ impl Github {
             .is_some_and(|v| v.split(';').next().unwrap_or("").trim() == "application/x-snappy");
         decode_bundle(&bounded(response, BUNDLE_LIMIT).await?, compressed)
     }
+
     pub async fn connect(config: &Config) -> Result<Self> {
         let client = crate::network::client_builder()?
             .https_only(true)
@@ -124,6 +130,7 @@ impl Github {
             uploads_origin: "https://uploads.github.com".into(),
         })
     }
+
     fn request(&self, method: reqwest::Method, path: &str) -> Result<reqwest::RequestBuilder> {
         ensure!(
             path.starts_with('/') && !path.contains(['?', '#']),
@@ -140,6 +147,7 @@ impl Github {
             request.bearer_auth(&self.token)
         })
     }
+
     pub async fn verify_builder_identity(&self, builder: &crate::config::Builder) -> Result<()> {
         builder.validate()?;
         // Public trust repositories do not need installation-token access. Never send
@@ -285,6 +293,7 @@ impl Github {
         }
         anyhow::bail!("workflow tag annotation depth exceeded")
     }
+
     pub async fn get(&self, path: &str) -> Result<Value> {
         let response = self
             .request(reqwest::Method::GET, path)?
@@ -294,9 +303,11 @@ impl Github {
             &bounded(response, 8 * 1024 * 1024).await?,
         )?)
     }
+
     pub async fn installation(self, repo: &Repository) -> Result<Self> {
         self.installation_for(&repo.name, repo.id, true).await
     }
+
     pub async fn installation_for(
         self,
         repository: &str,
@@ -311,10 +322,12 @@ impl Github {
         self.installation_permissions(repository, repository_id, permissions)
             .await
     }
+
     pub async fn reporting_installation(self, repo: &Repository) -> Result<Self> {
         self.installation_permissions(&repo.name, repo.id, json!({"statuses":"write"}))
             .await
     }
+
     async fn installation_permissions(
         mut self,
         repository: &str,
@@ -342,6 +355,7 @@ impl Github {
             .to_string();
         Ok(self)
     }
+
     pub async fn list(&self, path: &str, field: Option<&str>) -> Result<Vec<Value>> {
         let mut all = vec![];
         for page in 1..=100 {
@@ -363,6 +377,7 @@ impl Github {
         }
         anyhow::bail!("GitHub pagination limit exceeded")
     }
+
     pub async fn download(&self, repo: &Repository, id: u64) -> Result<Vec<u8>> {
         let response = self
             .request(
@@ -426,6 +441,7 @@ impl Github {
             &bounded(response, 1024 * 1024).await?,
         )?)
     }
+
     pub async fn upload(
         &self,
         repo: &Repository,

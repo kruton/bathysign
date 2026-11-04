@@ -19,6 +19,7 @@ pub struct Job {
     pub policy_hash: String,
     pub revision: u64,
 }
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Activation {
@@ -28,6 +29,7 @@ pub struct Activation {
     pub version: u32,
     pub profiles: std::collections::BTreeMap<String, History>,
 }
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Claimed {
@@ -35,12 +37,14 @@ pub struct Claimed {
     pub lease: String,
     pub attempt: u64,
 }
+
 #[derive(Clone)]
 pub struct Ledger {
     client: reqwest::Client,
     base: String,
     token: String,
 }
+
 impl Ledger {
     #[cfg(test)]
     pub(crate) fn local_test_client(origin: &str) -> Self {
@@ -68,6 +72,7 @@ impl Ledger {
             token,
         })
     }
+
     async fn post(&self, path: &str, body: &impl Serialize) -> Result<Value> {
         let operation = match path {
             "/v1/policies" => "ledger_activate",
@@ -81,6 +86,7 @@ impl Ledger {
         crate::metrics::observe(operation, result.is_ok(), start);
         result
     }
+
     async fn post_inner(&self, path: &str, body: &impl Serialize) -> Result<Value> {
         let response = self
             .client
@@ -93,6 +99,7 @@ impl Ledger {
             &bounded(response, 8 * 1024 * 1024).await?,
         )?)
     }
+
     pub async fn trust_head(
         &self,
         authority: &crate::trust::Authority,
@@ -115,6 +122,7 @@ impl Ledger {
         );
         Ok(checkpoint)
     }
+
     pub async fn trust_commit(&self, checkpoint: &crate::trust::Checkpoint) -> Result<()> {
         let digest = checkpoint.digest()?;
         let result = self
@@ -153,14 +161,17 @@ impl Ledger {
         ensure!(saved == *checkpoint, "trust commit was not confirmed");
         Ok(())
     }
+
     pub async fn activate(&self, activation: &Activation) -> Result<()> {
         self.post("/v1/policies", activation).await?;
         Ok(())
     }
+
     pub async fn enqueue(&self, job: &Job) -> Result<()> {
         self.post("/v1/jobs", job).await?;
         Ok(())
     }
+
     pub async fn claim(&self) -> Result<Option<Claimed>> {
         let value = self.post("/v1/claim", &serde_json::json!({})).await?;
         if value.is_null() {
@@ -169,6 +180,7 @@ impl Ledger {
             Ok(Some(serde_json::from_value(value)?))
         }
     }
+
     pub async fn event(&self, claimed: &Claimed, kind: &str, data: Value) -> Result<()> {
         self.post(
             &format!("/v1/jobs/{}/events", claimed.job.id),
@@ -177,6 +189,7 @@ impl Ledger {
         .await?;
         Ok(())
     }
+
     pub async fn finish(&self, claimed: &Claimed, status: &str) -> Result<()> {
         self.post(
             &format!("/v1/jobs/{}/finish", claimed.job.id),
@@ -185,6 +198,7 @@ impl Ledger {
         .await?;
         Ok(())
     }
+
     pub async fn ping(&self) -> Result<()> {
         let response = self
             .client
@@ -196,6 +210,7 @@ impl Ledger {
         Ok(())
     }
 }
+
 pub fn job_id(repository: u64, run: u64, attempt: u64, policy: &str) -> String {
     format!("{repository}-{run}-{attempt}-{policy}")
 }
@@ -206,6 +221,7 @@ pub struct History {
     pub classical_history: Vec<String>,
     pub hybrid_history: Vec<String>,
 }
+
 pub fn profile_job_id(
     repository: u64,
     run: u64,
@@ -230,6 +246,7 @@ mod trust_commit_tests {
             assert!(serde_json::from_value::<Job>(incomplete).is_err());
         }
     }
+
     #[tokio::test]
     async fn lost_commit_response_is_resolved_by_exact_digest_without_replaying_post() {
         let checkpoint = crate::trust::Checkpoint {

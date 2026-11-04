@@ -41,6 +41,7 @@ pub async fn activate(loaded: &Loaded, ledger: &Ledger) -> Result<()> {
     }
     Ok(())
 }
+
 async fn artifact(
     github: &Github,
     repo: &Repository,
@@ -99,6 +100,7 @@ async fn artifact(
     );
     Ok((entry.bytes, meta.clone()))
 }
+
 async fn provenance(
     github: &Github,
     loaded: &Loaded,
@@ -164,9 +166,11 @@ async fn provenance(
     }
     anyhow::bail!("no valid attestation satisfies signing policy")
 }
+
 pub async fn process(loaded: &Loaded, ledger: &Ledger, claim: &Claimed) -> Result<()> {
     process_with_trust(loaded, ledger, claim, None).await
 }
+
 pub async fn process_with_trust(
     loaded: &Loaded,
     ledger: &Ledger,
@@ -239,6 +243,7 @@ struct OutputJob<'a> {
     repo: &'a Repository,
     artifact_profile: &'a crate::config::ArtifactProfile,
 }
+
 impl OutputJob<'_> {
     async fn verify_and_finish(self, stage: crate::metrics::Stage) -> Result<()> {
         let loaded = self.loaded;

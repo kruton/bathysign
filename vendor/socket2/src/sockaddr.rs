@@ -332,6 +332,7 @@ impl From<SocketAddrV6> for SockAddr {
             {
                 storage.sin6_scope_id = addr.scope_id();
             }
+
             #[cfg(windows)]
             {
                 storage.Anonymous = SOCKADDR_IN6_0 {

@@ -1161,6 +1161,7 @@ impl Socket {
     pub fn header_included(&self) -> io::Result<bool> {
         self.header_included_v4()
     }
+
     /// Get the value of the `IP_HDRINCL` option on this socket.
     ///
     /// For more information about this option, see [`set_header_included`].
@@ -2113,6 +2114,7 @@ impl Socket {
                 .map(|recv_hoplimit| recv_hoplimit > 0)
         }
     }
+
     /// Set the value of the `IPV6_RECVHOPLIMIT` option for this socket.
     ///
     /// The received hop limit is returned as ancillary data by recvmsg()

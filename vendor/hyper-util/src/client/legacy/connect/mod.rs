@@ -128,6 +128,7 @@ impl PoisonPill {
             poisoned: Arc::new(AtomicBool::new(false)),
         }
     }
+
     pub(crate) fn poison(&self) {
         self.poisoned.store(true, Ordering::Relaxed)
     }
