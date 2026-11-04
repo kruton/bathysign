@@ -94,7 +94,7 @@ class HandoffTests(unittest.TestCase):
                 bad["verificationResult"]["signature"]["certificate"]["buildSignerURI"] = "https://github.com/" + signer
                 run.return_value = p.json_bytes([bad])
                 rows.reset_mock()
-                with self.assertRaisesRegex(ValueError, "builder differs"):
+                with self.assertRaisesRegex(ValueError, "workflow (identity|ref) differs"):
                     p.r.verify_final_bundle(out, self.policy_path)
                 rows.assert_not_called()
 

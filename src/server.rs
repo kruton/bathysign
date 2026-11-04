@@ -394,7 +394,7 @@ async fn publish_rejection_with_client(
     claim: &crate::ledger::Claimed,
     github: crate::github::Github,
 ) -> Result<()> {
-    let github = github.installation(repo).await?;
+    let github = github.reporting_installation(repo).await?;
     // This notice only stops waiting. It never authorizes signed outputs, and
     // deliberately contains no error strings, credentials, or artifact URLs.
     github

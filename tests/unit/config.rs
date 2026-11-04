@@ -72,6 +72,10 @@ static FIXTURE: LazyLock<Fixture> = LazyLock::new(|| {
     let root = directory.path();
     let mut config: Config =
         serde_json::from_str(include_str!("../../config/signer.example.json")).unwrap();
+    config.repositories[0].builder.refs = vec!["refs/tags/v0.2.0".into()];
+    config.repositories[0].builder.commit = Some("c".repeat(40));
+    config.repositories[0].finalizer.refs = vec!["refs/tags/v0.2.0".into()];
+    config.repositories[0].finalizer.commit = Some("c".repeat(40));
     for (name, spec) in &mut config.keys {
         *spec = identity(root, name, "RSA", "2048");
     }
@@ -469,7 +473,7 @@ fn workflow_release_pins_are_exported_and_bound_to_policy_hash() {
     let original = &loaded.config.repositories[0];
     let hash = loaded.policy_hash(original).unwrap();
     let mut changed = original.clone();
-    changed.builder.commit = "b".repeat(40);
+    changed.builder.commit = Some("b".repeat(40));
     changed.finalizer.commit = changed.builder.commit.clone();
     assert_ne!(hash, loaded.policy_hash(&changed).unwrap());
     changed = original.clone();
@@ -489,11 +493,39 @@ fn workflow_release_pins_are_exported_and_bound_to_policy_hash() {
     let exported = loaded.release_policy(&changed, &"a".repeat(40)).unwrap();
     assert_eq!(exported["builder"]["workflow_digest"], "e".repeat(40));
     changed.finalizer.workflow_digest = Some("f".repeat(40));
-    assert!(changed.validate_workflow_authorization().is_err());
+    changed.validate_workflow_authorization().unwrap();
     changed = original.clone();
     changed.builder.workflow_digest = Some("E".repeat(40));
     assert!(changed.validate_workflow_authorization().is_err());
     let policy = loaded.release_policy(original, &"a".repeat(40)).unwrap();
-    assert_eq!(policy["builder"]["commit"], original.builder.commit);
-    assert_eq!(policy["finalizer"]["commit"], original.finalizer.commit);
+    assert_eq!(
+        policy["builder"]["commit"],
+        serde_json::json!(original.builder.commit)
+    );
+    assert_eq!(
+        policy["finalizer"]["commit"],
+        serde_json::json!(original.finalizer.commit)
+    );
+}
+
+#[test]
+fn identity_policy_export_does_not_require_implementation_revisions() {
+    let loaded = load(&FIXTURE.config).unwrap();
+    let mut repo = loaded.config.repositories[0].clone();
+    for workflow in [&mut repo.builder, &mut repo.finalizer] {
+        workflow.commit = None;
+        workflow.workflow_digest = None;
+        workflow.refs = vec!["refs/tags/v0.*".into(), "refs/heads/main".into()];
+    }
+    repo.validate_workflow_authorization().unwrap();
+    let policy = loaded.release_policy(&repo, "").unwrap();
+    assert!(policy.get("signer_revision").is_none());
+    assert!(policy["builder"].get("commit").is_none());
+    assert!(policy["finalizer"].get("workflow_digest").is_none());
+    // Optional legacy implementation metadata never changes authorization.
+    let other = loaded.release_policy(&repo, &"a".repeat(40)).unwrap();
+    assert_eq!(policy["policy_hash"], other["policy_hash"]);
+    let hash = loaded.policy_hash(&repo).unwrap();
+    repo.builder.workflow = ".github/workflows/other.yml".into();
+    assert_ne!(hash, loaded.policy_hash(&repo).unwrap());
 }

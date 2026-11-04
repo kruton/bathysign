@@ -6,6 +6,7 @@ use crate::{
 use anyhow::{Result, ensure};
 use serde::{Deserialize, Serialize};
 use std::{
+    borrow::Cow,
     collections::{BTreeMap, BTreeSet},
     path::{Path, PathBuf},
 };
@@ -77,14 +78,51 @@ pub struct Builder {
     pub repository_id: u64,
     pub workflow: String,
     pub refs: Vec<String>,
-    pub commit: String,
+    /// Optional legacy release pin. Identity policies omit implementation pins.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub commit: Option<String>,
     /// GitHub's workflow SHA is the tag object for annotated release tags.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub workflow_digest: Option<String>,
 }
 impl Builder {
-    pub fn workflow_digest(&self) -> &str {
-        self.workflow_digest.as_deref().unwrap_or(&self.commit)
+    pub fn workflow_digest(&self) -> Option<&str> {
+        self.workflow_digest.as_deref().or(self.commit.as_deref())
+    }
+
+    /// Match an actual execution ref against this workflow's allowlist.
+    pub fn allows_ref(&self, reference: &str) -> bool {
+        workflow_ref(reference) && !reference.contains('*') && ref_allowed(&self.refs, reference)
+    }
+
+    pub fn validate(&self) -> Result<()> {
+        ensure!(
+            self.repository_id > 0
+                && self.repository.split('/').count() == 2
+                && safe_path(&self.repository)
+                && workflow_path(&self.workflow),
+            "invalid trusted workflow identity"
+        );
+        ensure!(
+            !self.refs.is_empty()
+                && self.refs.iter().all(|r| workflow_ref(r))
+                && self.refs.iter().collect::<BTreeSet<_>>().len() == self.refs.len(),
+            "explicit unique trusted workflow refs required"
+        );
+        if let Some(commit) = &self.commit {
+            ensure!(
+                matches!(self.refs.as_slice(), [reference] if release_ref(reference))
+                    && valid_commit(commit)
+                    && self.workflow_digest().is_some_and(valid_commit),
+                "invalid legacy release pin"
+            );
+        } else {
+            ensure!(
+                self.workflow_digest.is_none(),
+                "workflow digest pin requires a legacy commit pin"
+            );
+        }
+        Ok(())
     }
 }
 impl Repository {
@@ -102,25 +140,19 @@ impl Repository {
                 && self.callers.iter().collect::<BTreeSet<_>>().len() == self.callers.len(),
             "unique caller workflow paths required"
         );
+        self.builder.validate()?;
+        self.finalizer.validate()?;
         ensure!(
             self.builder.repository_id != self.id
                 && self.builder.repository != self.name
-                && self.builder.refs.len() == 1
-                && release_ref(&self.builder.refs[0])
-                && valid_commit(&self.builder.commit)
-                && valid_commit(self.builder.workflow_digest()),
-            "a separate trusted builder with one exact release tag and commit pin is required; migrate branch policies"
+                && self.finalizer.repository_id != self.id
+                && self.finalizer.repository != self.name,
+            "trusted workflows must be separate from the source repository"
         );
         ensure!(
-            self.finalizer.repository == self.builder.repository
-                && self.finalizer.repository_id == self.builder.repository_id
-                && workflow_path(&self.finalizer.workflow)
-                && self.finalizer.workflow != self.builder.workflow
-                && self.finalizer.refs == self.builder.refs
-                && self.finalizer.commit == self.builder.commit
-                && valid_commit(self.finalizer.workflow_digest())
-                && self.finalizer.workflow_digest() == self.builder.workflow_digest(),
-            "a separate finalizer workflow in the same trusted repository, release tag and commit is required"
+            self.finalizer.repository_id != self.builder.repository_id
+                || self.finalizer.workflow != self.builder.workflow,
+            "builder and finalizer must be distinct workflow identities"
         );
         Ok(())
     }
@@ -169,6 +201,28 @@ pub fn valid_commit(value: &str) -> bool {
             .bytes()
             .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
 }
+/// Exact branches and tags, or a single trailing wildcard in a tag family.
+pub fn workflow_ref(value: &str) -> bool {
+    let name = if let Some(name) = value.strip_prefix("refs/heads/") {
+        Cow::Borrowed(name)
+    } else if let Some(name) = value.strip_prefix("refs/tags/") {
+        name.strip_suffix('*').map_or_else(
+            || Cow::Borrowed(name),
+            |prefix| Cow::Owned(format!("{prefix}0")),
+        )
+    } else {
+        return false;
+    };
+    !name.is_empty()
+        && !name.contains("..")
+        && !name.ends_with('.')
+        && name
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b"/-_.+".contains(&b))
+        && name
+            .split('/')
+            .all(|part| !part.is_empty() && !part.starts_with('.') && !part.ends_with(".lock"))
+}
 pub fn valid_hash(value: &str) -> bool {
     value.len() == 64
         && value
@@ -186,13 +240,18 @@ pub fn ref_allowed(patterns: &[String], value: &str) -> bool {
     patterns.iter().any(|p| {
         p == value
             || (p.starts_with("refs/tags/")
-                && p.ends_with('*')
-                && !p[..p.len() - 1].contains('*')
-                && value.starts_with(&p[..p.len() - 1]))
+                && p.strip_suffix('*')
+                    .is_some_and(|prefix| !prefix.contains('*') && value.starts_with(prefix)))
     })
 }
 fn workflow_path(value: &str) -> bool {
-    value.starts_with(".github/workflows/") && safe_path(value)
+    let Some(name) = value.strip_prefix(".github/workflows/") else {
+        return false;
+    };
+    let stem = name
+        .strip_suffix(".yml")
+        .or_else(|| name.strip_suffix(".yaml"));
+    stem.is_some_and(|stem| !stem.is_empty()) && !name.contains('/') && safe_path(name)
 }
 pub fn safe_path(value: &str) -> bool {
     !value.is_empty()
@@ -565,8 +624,8 @@ impl Loaded {
     ) -> Result<serde_json::Value> {
         use base64::{Engine, engine::general_purpose::STANDARD};
         ensure!(
-            signer_revision.len() == 40 && signer_revision.bytes().all(|b| b.is_ascii_hexdigit()),
-            "full deployed signer commit required"
+            signer_revision.is_empty() || valid_commit(signer_revision),
+            "invalid optional signer revision metadata"
         );
         let receipt = &self.keys[&repo.receipt_key];
         let profiles = repo.profiles.iter().map(|(name,p)| {
@@ -574,7 +633,10 @@ impl Loaded {
             let (lineage, _) = &self.lineages[&(repo.id, name.clone())];
             Ok((name.clone(), serde_json::json!({"package":p.package,"lineage_sha256":lineage.digest()?,"rotation_min_sdk":s.rotation_min_sdk,"hybrid_min_sdk":s.hybrid.as_ref().map(|_|37),"keys":{"original":self.keys[&s.original_key].fingerprint(),"classical":self.keys[&s.current_key].fingerprint(),"upload":self.keys[&s.upload_key].fingerprint(),"transparency":self.keys[&s.transparency_key].fingerprint(),"hybrid":s.hybrid.as_ref().map(|h|serde_json::json!({"rsa":self.keys[&h.classical_key].fingerprint(),"pqc":self.keys[&h.pqc_key].fingerprint()}))}})))
         }).collect::<Result<BTreeMap<_,_>>>()?;
-        let mut policy = serde_json::json!({"version":self.config.version,"repository":repo.name,"repository_id":repo.id,"visibility":repo.visibility,"policy_hash":self.policy_hash(repo)?,"revision":repo.revision,"refs":repo.refs,"callers":repo.callers,"builder":repo.builder,"finalizer":repo.finalizer,"receipt_keys":{receipt.fingerprint():STANDARD.encode(&receipt.certificate)},"profiles":profiles,"signer_revision":signer_revision});
+        let mut policy = serde_json::json!({"version":self.config.version,"repository":repo.name,"repository_id":repo.id,"visibility":repo.visibility,"policy_hash":self.policy_hash(repo)?,"revision":repo.revision,"refs":repo.refs,"callers":repo.callers,"builder":repo.builder,"finalizer":repo.finalizer,"receipt_keys":{receipt.fingerprint():STANDARD.encode(&receipt.certificate)},"profiles":profiles});
+        if !signer_revision.is_empty() {
+            policy["signer_revision"] = signer_revision.into();
+        }
         policy["receipt_namespace"] = serde_json::json!(repo.receipt_namespace);
         if let Some(authority) = &self.config.trust_authority {
             policy["trust_authority"] = serde_json::to_value(authority)?;
@@ -686,6 +748,22 @@ mod tests {
     }
 
     #[test]
+    fn workflow_paths_match_hosted_verifier_contract() {
+        for name in ["release.yml", "release.android.yaml", ".release.yml"] {
+            assert!(workflow_path(&format!(".github/workflows/{name}")));
+        }
+        for name in [
+            "nested/release.yml",
+            "release.txt",
+            ".yml",
+            "../release.yml",
+            "release.yml/",
+        ] {
+            assert!(!workflow_path(&format!(".github/workflows/{name}")));
+        }
+    }
+
+    #[test]
     fn only_trusted_workflow_identities_are_supported() {
         let config: Config =
             serde_json::from_str(include_str!("../config/signer.example.json")).unwrap();
@@ -694,27 +772,27 @@ mod tests {
         let mut repo = valid.clone();
         repo.builder.repository_id = repo.id;
         assert!(repo.validate_workflow_authorization().is_err());
-        repo = valid.clone();
-        repo.builder.refs = vec!["refs/tags/v*".into()];
-        assert!(repo.validate_workflow_authorization().is_err());
-        repo = valid.clone();
+        for reference in ["refs/heads/main", "refs/tags/v0.*", "refs/tags/v1"] {
+            repo = valid.clone();
+            repo.builder.refs = vec![reference.into()];
+            repo.validate_workflow_authorization().unwrap();
+        }
         for reference in [
-            "refs/heads/main",
-            "refs/tags/v1",
-            "refs/tags/v01.2.0",
-            "refs/tags/v0.2.0*",
+            "refs/heads/*",
+            "refs/tags/v**",
+            "refs/heads/../evil",
+            "refs/tags/",
+            "refs/tags/a.lock",
         ] {
+            repo = valid.clone();
             repo.builder.refs = vec![reference.into()];
             assert!(repo.validate_workflow_authorization().is_err());
         }
         repo = valid.clone();
-        repo.finalizer.commit = "b".repeat(40);
+        repo.builder.workflow_digest = Some("a".repeat(40));
         assert!(repo.validate_workflow_authorization().is_err());
         repo = valid.clone();
-        repo.builder.commit = "C".repeat(40);
-        assert!(repo.validate_workflow_authorization().is_err());
-        repo = valid.clone();
-        repo.finalizer.repository = "attacker/builders".into();
+        repo.builder.commit = Some("C".repeat(40));
         assert!(repo.validate_workflow_authorization().is_err());
         repo = valid.clone();
         repo.finalizer.workflow = repo.builder.workflow.clone();

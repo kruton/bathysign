@@ -674,6 +674,7 @@ async fn signing_admission_binds_repository_builder_run_attempt_event_and_caller
     repo.builder.repository = "trusted/builders".into();
     repo.builder.repository_id = 1001;
     repo.builder.refs = vec!["refs/tags/v0.2.0".into()];
+    repo.builder.commit = Some("c".repeat(40));
     let mut profile = repo.profiles.values().next().unwrap().clone();
     profile.apk_artifact = "unsigned-{attempt}".into();
     profile.aab_artifact = "unsigned-{attempt}".into();

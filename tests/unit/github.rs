@@ -235,7 +235,7 @@ async fn installation_tokens_are_repository_scoped_and_least_privileged() {
     let repo = repository();
     for write in [false, true] {
         let permissions = if write {
-            json!({"actions":"read","attestations":"read","contents":"write","statuses":"write"})
+            json!({"actions":"read","attestations":"read","contents":"write"})
         } else {
             json!({"contents":"read"})
         };
@@ -288,7 +288,7 @@ async fn builder_identity_requires_an_immutable_release_and_commit_without_crede
         repository_id: 7,
         workflow: ".github/workflows/build.yml".into(),
         refs: vec!["refs/tags/v0.2.0".into()],
-        commit: "c".repeat(40),
+        commit: Some("c".repeat(40)),
         workflow_digest: None,
     };
     let metadata = || {
@@ -630,4 +630,123 @@ async fn chunked_downloads_can_grow_without_content_length() {
     let (github, task) = fixture(vec![response]);
     assert_eq!(github.download(&repo, 19).await.unwrap(), b"123456789012");
     task.join().unwrap();
+}
+
+#[tokio::test]
+async fn identity_authorization_checks_repository_and_resolves_execution_objects() {
+    let builder = crate::config::Builder {
+        repository: "trusted/builders".into(),
+        repository_id: 7,
+        workflow: ".github/workflows/build.yml".into(),
+        refs: vec!["refs/heads/main".into(), "refs/tags/v0.*".into()],
+        commit: None,
+        workflow_digest: None,
+    };
+    for (metadata, accepted) in [
+        (json!({"id":7,"visibility":"public"}), true),
+        (json!({"id":8,"visibility":"public"}), false),
+        (json!({"id":7,"visibility":"private"}), false),
+    ] {
+        let (github, task) = fixture(vec![
+            Exchange::json("GET", "/repos/trusted/builders", metadata).public(),
+        ]);
+        assert_eq!(
+            github.verify_builder_identity(&builder).await.is_ok(),
+            accepted
+        );
+        task.join().unwrap();
+    }
+    let (github, task) = fixture(vec![]);
+    for digest in ["a".repeat(40), "b".repeat(40)] {
+        assert_eq!(
+            github
+                .workflow_commit(&builder, "refs/heads/main", &digest)
+                .await
+                .unwrap(),
+            digest
+        );
+    }
+    assert!(
+        github
+            .workflow_commit(&builder, "refs/heads/evil", &"a".repeat(40))
+            .await
+            .is_err()
+    );
+    assert!(
+        github
+            .workflow_commit(&builder, "refs/heads/main", "main")
+            .await
+            .is_err()
+    );
+    task.join().unwrap();
+    let sha = "a".repeat(40);
+    let target = "b".repeat(40);
+    let (github, task) = fixture(vec![
+        Exchange::json(
+            "GET",
+            &format!("/repos/trusted/builders/git/tags/{sha}"),
+            json!({"sha":sha,"object":{"type":"commit","sha":target}}),
+        )
+        .public(),
+    ]);
+    assert_eq!(
+        github
+            .workflow_commit(&builder, "refs/tags/v0.2.4", &sha)
+            .await
+            .unwrap(),
+        target
+    );
+    task.join().unwrap();
+    for response in [
+        json!({"sha":sha,"object":{"type":"tag","sha":sha}}),
+        json!({"sha":target,"object":{"type":"commit","sha":target}}),
+        json!({"sha":sha,"object":{"type":"tree","sha":target}}),
+    ] {
+        let (github, task) = fixture(vec![
+            Exchange::json(
+                "GET",
+                &format!("/repos/trusted/builders/git/tags/{sha}"),
+                response,
+            )
+            .public(),
+        ]);
+        assert!(
+            github
+                .workflow_commit(&builder, "refs/tags/v0.2.4", &sha)
+                .await
+                .is_err()
+        );
+        task.join().unwrap();
+    }
+    for (status, fallback) in [(404, true), (403, false), (503, false)] {
+        let mut error = Exchange::json(
+            "GET",
+            &format!("/repos/trusted/builders/git/tags/{sha}"),
+            json!({}),
+        )
+        .public();
+        error.response = error
+            .response
+            .replacen("200 OK", &format!("{status} Error"), 1);
+        let mut exchanges = vec![error];
+        if fallback {
+            exchanges.push(
+                Exchange::json(
+                    "GET",
+                    &format!("/repos/trusted/builders/git/commits/{sha}"),
+                    json!({"sha":sha}),
+                )
+                .public(),
+            );
+        }
+        let (github, task) = fixture(exchanges);
+        assert_eq!(
+            github
+                .workflow_commit(&builder, "refs/tags/v0.2.5", &sha)
+                .await
+                .is_ok(),
+            fallback
+        );
+        task.join().unwrap();
+    }
 }

@@ -4,6 +4,8 @@ Version tags matching Cargo metadata and belonging to main trigger prereleases. 
 
 Downloads include the x86_64 Hermit appliance/loader and AMD64/ARM64 Linux host tools. Host binaries target Debian 13 or compatible glibc environments. The collector container is published at `ghcr.io/kruton/bathysign-collector:vVERSION`; deploy by digest. Mount configuration, TLS credentials and persistent SQLite storage as described in `deploy/collector/README.md`.
 
+Workflow authorization and deployment selection are separate. The owner policy trusts repository/workflow identities and allowed refs; the deployment operator verifies releases and pins exact binaries or image digests. See [identity authorization and migration](slsa.md#migrate-to-identity-authorization). Compatible product upgrades do not require a signing-policy revision.
+
 ## Choose a download
 
 For a typical installation, download the appliance and one host-tools archive:
@@ -103,21 +105,21 @@ gh api repos/kruton/bathysign/releases/tags/v0.2.0 \
   --jq '{tag_name, immutable, draft, prerelease}'
 ```
 
-Repository-wide immutability settings require administrative read access and are not used as evidence by the signer. Enabling the setting does not retrofit an existing mutable release. Leave `v0.1.0` untouched and publish a fresh version for this architecture. Follow the [workflow policy migration](slsa.md#migrate-from-branch-policies) when updating consumers.
+Repository-wide immutability settings require administrative read access and are not used as evidence by the signer. Enabling the setting does not retrofit an existing mutable release. Leave `v0.1.0` untouched and publish a fresh version for this architecture. Follow the [identity policy migration](slsa.md#migrate-to-identity-authorization) when updating consumers.
 
 ## Annotated workflow release identities
 
 Version 0.2.1 adds an optional `workflow_digest` pin for annotated workflow tags.
-Keep the source commit and tag object as separate pins in builder/finalizer
-policies. GitHub certificates and job workflow metadata identify an annotated
+Legacy policies keep the source commit and tag object as separate pins.
+Identity policies record both as execution evidence without pinning either. GitHub certificates and job workflow metadata identify an annotated
 tag object, while code and provenance dependencies identify its resolved source
 commit. Both are verified; neither substitutes for the other. Lightweight tags
 retain the existing commit-only policy. See [workflow migration](slsa.md).
 
 The immutable v0.2.0 release exposed this mismatch during a genuine disposable
 signing trial. Do not move or replace its tag. Publish the corrected release,
-regenerate policies and increment their revisions, then run fresh source builds
-with the new workflow tag before the production cutover.
+then run fresh source builds with the new workflow tag before the production
+cutover. Policy revisions change only if authorization changes.
 
 ## Timestamp-only trust refreshes
 

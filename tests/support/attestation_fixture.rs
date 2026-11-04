@@ -118,7 +118,7 @@ impl Fixture {
         repository.builder.repository = "trusted/builders".into();
         repository.builder.workflow = ".github/workflows/build.yml".into();
         repository.builder.refs = vec!["refs/tags/v0.2.0".into()];
-        repository.builder.commit = "b".repeat(40);
+        repository.builder.commit = Some("b".repeat(40));
         let commit = "a".repeat(40);
         let digest = bathysign::sha256(b"disposable unsigned artifact");
         let source = "https://github.com/owner/app";

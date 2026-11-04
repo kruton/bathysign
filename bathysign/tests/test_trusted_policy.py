@@ -118,17 +118,15 @@ class PolicyTests(unittest.TestCase):
         with mock.patch.object(p.r, 'api', side_effect=RuntimeError('API unavailable')), self.assertRaises(RuntimeError):
             p.r.verify_workflow_identity(builder)
 
-    def test_workflow_policy_rejects_branch_wildcard_and_unpinned_identities(self):
+    def test_legacy_policy_retains_exact_pins_and_identity_policy_accepts_refs(self):
         for reference in ('refs/heads/main', 'refs/tags/v*', 'refs/tags/v1', 'refs/tags/v01.2.0'):
             with self.subTest(reference=reference), self.assertRaises(ValueError):
                 p.r.validate_workflow_identity({**identity(), 'refs':[reference]})
         for commit in ('', 'a'*39, 'A'*40):
             with self.subTest(commit=commit), self.assertRaises(ValueError):
                 p.r.validate_workflow_identity({**identity(), 'commit':commit})
-        with self.assertRaises(ValueError):
-            p.r.validate_workflow_identity({k:v for k,v in identity().items() if k != 'commit'})
-        with self.assertRaises(ValueError):
-            p.r.validate_policy({**self.policy, 'finalizer':{**self.policy['finalizer'], 'commit':'b'*40}})
+        p.r.validate_workflow_identity({k:v for k,v in identity().items() if k != 'commit'})
+        p.r.validate_policy({**self.policy, 'finalizer':{**self.policy['finalizer'], 'commit':'b'*40}})
         p.r.validate_workflow_identity({**identity(), 'refs':['refs/tags/v0.2.0-rc.1']})
 
     def test_annotated_identity_requires_separate_matching_digest_pins(self):
@@ -146,7 +144,7 @@ class PolicyTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 p.r.verify_finalizer_certificate(policy, {'buildSignerURI':uri, 'buildSignerDigest':finalizer['commit']})
         policy['finalizer']['workflow_digest'] = 'b'*40
-        with self.assertRaises(ValueError): p.r.validate_policy(policy)
+        p.r.validate_policy(policy)
         builder = {**identity(), 'workflow_digest':'a'*40}
         responses = [{'id':builder['repository_id'], 'visibility':'public'},
             {'tag_name':'v0.2.0', 'draft':False, 'immutable':True},
@@ -196,9 +194,92 @@ class PolicyTests(unittest.TestCase):
             self.assertNotIn("--signer-digest", run.call_args.args)
             certificate["buildSignerURI"] = signer.replace("bathysign-finalize.yml", "attacker.yml")
             run.return_value = p.json_bytes([self.result])
-            with self.assertRaisesRegex(ValueError, "builder differs"):
+            with self.assertRaisesRegex(ValueError, "workflow identity differs"):
                 p.verify_handoff(self.handoff, self.sha, self.policy_path)
 
+
+class IdentityAuthorizationTests(unittest.TestCase):
+    def identity(self, refs=None):
+        return {k: v for k, v in {**identity(), 'refs': refs or ['refs/heads/main', 'refs/tags/v0.*']}.items() if k != 'commit'}
+
+    def test_authorization_survives_new_workflow_revisions(self):
+        builder = self.identity()
+        p.r.validate_workflow_identity(builder)
+        with mock.patch.object(p.r, 'api', return_value={'id':builder['repository_id'], 'visibility':'public'}) as api:
+            p.r.verify_workflow_identity(builder)
+            self.assertEqual(api.call_count, 1)
+        uri = f"https://github.com/{builder['repository']}/{builder['workflow']}@refs/heads/main"
+        for revision in ('a'*40, 'b'*40):
+            self.assertEqual(p.r.workflow_execution(builder, uri, revision), revision)
+        for bad in (uri.replace('/main','/evil'), uri.replace('example/', 'attacker/'), uri.replace(builder['workflow'], '.github/workflows/evil.yml')):
+            with self.subTest(uri=bad), self.assertRaises(ValueError):
+                p.r.workflow_execution(builder, bad, 'a'*40)
+        for metadata in ({'id':99, 'visibility':'public'}, {'id':builder['repository_id'], 'visibility':'private'}):
+            with mock.patch.object(p.r, 'api', return_value=metadata), self.assertRaises(ValueError):
+                p.r.verify_workflow_identity(builder)
+
+    def test_workflow_paths_match_native_verifier_contract(self):
+        for name in ('release.yml', 'release.android.yaml', '.release.yml'):
+            p.r.validate_workflow_identity({**self.identity(), 'workflow':'.github/workflows/' + name})
+        for name in ('nested/release.yml', 'release.txt', '.yml', '../release.yml', 'release.yml/'):
+            with self.subTest(name=name), self.assertRaises(ValueError):
+                p.r.validate_workflow_identity({**self.identity(), 'workflow':'.github/workflows/' + name})
+
+    def test_policy_accepts_no_revision_and_independent_workflow_channels(self):
+        fixture = fixtures.HandoffTests()
+        fixture.setUp()
+        self.addCleanup(fixture.doCleanups)
+        policy = fixture.policy
+        policy.pop('signer_revision')
+        policy['builder'] = self.identity()
+        policy['finalizer'] = {**self.identity(['refs/heads/main']), 'workflow':'.github/workflows/bathysign-finalize.yml'}
+        p.r.validate_policy(policy)
+        for reference in ('refs/heads/*', 'refs/tags/v**', 'refs/tags/', 'refs/tags/a.lock', 'refs/heads/../evil'):
+            with self.subTest(reference=reference), self.assertRaises(ValueError):
+                p.r.validate_workflow_identity(self.identity([reference]))
+        with self.assertRaises(ValueError):
+            p.r.validate_workflow_identity({**self.identity(), 'workflow_digest':'a'*40})
+
+    def test_publisher_accepts_new_revision_and_binds_predicate_to_certificate(self):
+        fixture = fixtures.HandoffTests()
+        fixture.setUp()
+        self.addCleanup(fixture.doCleanups)
+        finalizer = {**self.identity(['refs/heads/main']), 'workflow':'.github/workflows/bathysign-finalize.yml'}
+        fixture.policy['finalizer'] = finalizer
+        fixture.policy.pop('signer_revision')
+        uri = f"https://github.com/{finalizer['repository']}/{finalizer['workflow']}@refs/heads/main"
+        certificate = fixture.result['verificationResult']['signature']['certificate']
+        certificate.update(buildSignerURI=uri, buildSignerDigest='a'*40)
+        fixture.predicate['runDetails']['builder']['id'] = uri
+        internal = fixture.predicate['buildDefinition']['internalParameters']
+        internal.update(finalizerCommit='a'*40, finalizerWorkflowDigest='a'*40)
+        fixture.populate()
+        with mock.patch.dict(os.environ, fixture.env, clear=True), mock.patch.object(p.r, 'api', return_value={'id':42,'visibility':'public','default_branch':'main'}), mock.patch.object(p.r, 'verify_workflow_identity'), mock.patch.object(p.r, 'run', side_effect=lambda *args:p.json_bytes([fixture.result])):
+            self.assertEqual(p.verify_handoff(fixture.handoff, fixture.sha, fixture.policy_path), fixture.manifest)
+            certificate['buildSignerDigest'] = 'b'*40
+            with self.assertRaisesRegex(ValueError, 'predicate builder differs'):
+                p.verify_handoff(fixture.handoff, fixture.sha, fixture.policy_path)
+            internal.update(finalizerCommit='b'*40, finalizerWorkflowDigest='b'*40)
+            fixture.populate()
+            self.assertEqual(p.verify_handoff(fixture.handoff, fixture.sha, fixture.policy_path), fixture.manifest)
+
+    def test_tag_evidence_uses_signed_object_and_fails_closed(self):
+        builder, sha, commit = self.identity(), 'a'*40, 'b'*40
+        with mock.patch.object(p.r, 'api', return_value={'sha':sha,'object':{'type':'commit','sha':commit}}) as api:
+            self.assertEqual(p.r.workflow_commit(builder, 'refs/tags/v0.2.4', sha), commit)
+            self.assertEqual(api.call_args.args, (f"repos/{builder['repository']}/git/tags/{sha}",))
+        for obj in ({'sha':sha,'object':{'type':'tag','sha':sha}}, {'sha':commit,'object':{'type':'commit','sha':commit}}, {'sha':sha,'object':{'type':'tree','sha':commit}}):
+            with mock.patch.object(p.r, 'api', return_value=obj), self.assertRaises(ValueError):
+                p.r.workflow_commit(builder, 'refs/tags/v0.2.4', sha)
+        for status in (404,403,503):
+            error = p.r.subprocess.CalledProcessError(1, 'gh', stderr=f'gh: error (HTTP {status})'.encode())
+            with mock.patch.object(p.r, 'api', side_effect=[error, {'sha':sha}]) as api:
+                if status == 404:
+                    self.assertEqual(p.r.workflow_commit(builder, 'refs/tags/v0.2.4', sha), sha)
+                    self.assertEqual(api.call_count, 2)
+                else:
+                    with self.assertRaises(ValueError): p.r.workflow_commit(builder, 'refs/tags/v0.2.4', sha)
+                    self.assertEqual(api.call_count, 1)
 
 if __name__ == "__main__":
     unittest.main()

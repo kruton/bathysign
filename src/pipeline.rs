@@ -143,7 +143,22 @@ async fn provenance(
                 job.job.attempt,
             )
         };
-        if let Ok(result) = result {
+        if let Ok(mut result) = result {
+            let prefix = format!(
+                "https://github.com/{}/{}@",
+                repo.builder.repository, repo.builder.workflow
+            );
+            let reference = result["builder"]
+                .as_str()
+                .and_then(|s| s.strip_prefix(&prefix))
+                .ok_or_else(|| anyhow::anyhow!("builder identity missing"))?;
+            let digest = result["builder_workflow_digest"]
+                .as_str()
+                .ok_or_else(|| anyhow::anyhow!("workflow digest missing"))?;
+            result["builder_commit"] = github
+                .workflow_commit(&repo.builder, reference, digest)
+                .await?
+                .into();
             return Ok((result, serde_json::to_vec(&bundle)?));
         }
     }

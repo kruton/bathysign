@@ -34,7 +34,8 @@ enum Command {
         config: PathBuf,
         #[arg(long)]
         repository: String,
-        #[arg(long)]
+        /// Optional legacy deployment metadata; never an authorization requirement.
+        #[arg(long, default_value = "")]
         signer_revision: String,
         #[arg(long)]
         out: PathBuf,

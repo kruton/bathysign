@@ -18,7 +18,7 @@ fn genuine_annotated_release_bundle_keeps_source_and_workflow_digests_separate()
         repository_id: 1436515323,
         workflow: ".github/workflows/bathysign-attest.yml".into(),
         refs: vec!["refs/tags/v0.2.0".into()],
-        commit: "2103fdfc57058d232be05e2a16697a8e90e6b85f".into(),
+        commit: Some("2103fdfc57058d232be05e2a16697a8e90e6b85f".into()),
         workflow_digest: Some("afba3630da667063a728b5a7f59ba5a174bb9e94".into()),
     };
     let bundle =
@@ -36,14 +36,30 @@ fn genuine_annotated_release_bundle_keeps_source_and_workflow_digests_separate()
         )
     };
     let verified = verify(&repository).unwrap();
-    assert_eq!(verified["builder_commit"], repository.builder.commit);
+    assert_eq!(
+        verified["builder_commit"],
+        serde_json::json!(repository.builder.commit)
+    );
     assert_eq!(
         verified["builder_workflow_digest"],
-        repository.builder.workflow_digest()
+        serde_json::json!(repository.builder.workflow_digest())
     );
     repository.builder.workflow_digest = None;
     assert!(verify(&repository).is_err());
     repository.builder.workflow_digest = Some("a".repeat(40));
+    assert!(verify(&repository).is_err());
+    repository.builder.commit = None;
+    repository.builder.workflow_digest = None;
+    repository.builder.refs = vec!["refs/tags/v0.*".into()];
+    let identity = verify(&repository).unwrap();
+    assert_eq!(
+        identity["builder_workflow_digest"],
+        "afba3630da667063a728b5a7f59ba5a174bb9e94"
+    );
+    repository.builder.refs = vec!["refs/tags/v1.*".into()];
+    assert!(verify(&repository).is_err());
+    repository.builder.refs = vec!["refs/tags/v0.*".into()];
+    repository.builder.workflow = ".github/workflows/evil.yml".into();
     assert!(verify(&repository).is_err());
 }
 use sigstore_trust_root::TrustedRoot;
@@ -183,7 +199,7 @@ fn reusable_builder_and_caller_are_authorized_independently() {
     assert!(verify(&statement, &bad).is_err());
     let mut bad = claims.clone();
     bad.build_signer_digest = Some("d".repeat(40));
-    assert!(verify(&statement, &bad).is_err());
+    verify(&statement, &bad).unwrap();
     bad.build_signer_digest = None;
     assert!(verify(&statement, &bad).is_err());
     assert!(bathysign::config::ref_allowed(
@@ -530,4 +546,43 @@ fn trusted_root_pins_expiry_and_timestamp_evidence_are_mandatory() {
         )
         .is_err()
     );
+}
+
+#[test]
+fn identity_policy_verifies_distinct_signed_workflow_revisions() {
+    initialize();
+    let fixture = local_attestation::Fixture::new();
+    let mut repo = fixture.repository.clone();
+    repo.builder.commit = None;
+    repo.builder.workflow_digest = None;
+    repo.builder.refs = vec!["refs/heads/main".into()];
+    let builder = "https://github.com/trusted/builders/.github/workflows/build.yml@refs/heads/main";
+    let mut statement = fixture.statement.clone();
+    statement["predicate"]["runDetails"]["builder"]["id"] = builder.into();
+    for revision in ["c".repeat(40), "d".repeat(40)] {
+        let mut claims = fixture.claims.clone();
+        claims.insert(9, builder.into());
+        claims.insert(10, revision.clone());
+        let bundle = fixture.bundle(&statement, &claims);
+        let verify = |repo: &bathysign::config::Repository, attempt| {
+            bathysign::attestation::verify_digest_with_root(
+                &fixture.digest,
+                &bundle,
+                repo,
+                &fixture.root,
+                bathysign::config::now().unwrap() + 3600,
+                &fixture.commit,
+                123,
+                attempt,
+            )
+        };
+        assert_eq!(
+            verify(&repo, 2).unwrap()["builder_workflow_digest"],
+            revision
+        );
+        assert!(verify(&repo, 1).is_err());
+        let mut denied = repo.clone();
+        denied.builder.refs = vec!["refs/heads/other".into()];
+        assert!(verify(&denied, 2).is_err());
+    }
 }

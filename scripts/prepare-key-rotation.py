@@ -69,7 +69,7 @@ def prepare(args):
     offline = json.loads(args.config.read_bytes())
     deployment = json.loads(args.deployment_config.read_bytes())
     require(without_paths(offline) == without_paths(deployment), "offline/deployment settings differ beyond paths")
-    require(re.fullmatch(r"[0-9a-f]{40}", args.signer_revision), "full deployed signer revision required")
+    require(not args.signer_revision or re.fullmatch(r"[0-9a-f]{40}", args.signer_revision), "full deployed signer revision required")
     require(re.fullmatch(r"[a-zA-Z0-9_-]+", args.key_id), "invalid key role")
     require(args.guest_directory.is_absolute(), "absolute guest directory required")
     require(args.key_id not in offline["keys"], "replacement role already exists")
@@ -149,7 +149,7 @@ def main():
     for name in ("config", "deployment-config", "key", "certificate", "admin", "out", "guest-directory"):
         parser.add_argument("--" + name, type=Path, required=True)
     parser.add_argument("--repository", required=True)
-    parser.add_argument("--signer-revision", required=True)
+    parser.add_argument("--signer-revision", default="", help="Optional legacy implementation metadata")
     parser.add_argument("--key-id", default="apk-rsa4096")
     parser.add_argument("--rotation-min-sdk", type=int, choices=(28, 33), default=33)
     parser.add_argument("--revision", type=int, help="New policy revision; defaults to active revision + 1")

@@ -1,4 +1,4 @@
-use crate::config::{Repository, TrustRoot, now, ref_allowed};
+use crate::config::{Repository, TrustRoot, now};
 use anyhow::{Result, ensure};
 use serde_json::{Value, json};
 use sigstore_trust_root::TrustedRoot;
@@ -113,7 +113,7 @@ pub fn verify_digest_with_root(
         .strip_prefix(&prefix)
         .ok_or_else(|| anyhow::anyhow!("builder identity differs"))?;
     ensure!(
-        ref_allowed(&repo.builder.refs, builder_ref),
+        repo.builder.allows_ref(builder_ref),
         "builder ref is not allowed"
     );
     let mut policy = VerificationPolicy::new(
@@ -257,16 +257,17 @@ pub fn validate_claims(
     let builder_ref = builder
         .strip_prefix(&prefix)
         .ok_or_else(|| anyhow::anyhow!("builder identity differs"))?;
-    ensure!(
-        ref_allowed(&repo.builder.refs, builder_ref),
-        "builder ref differs"
-    );
+    ensure!(repo.builder.allows_ref(builder_ref), "builder ref differs");
     let builder_digest = claims
         .build_signer_digest
         .as_deref()
         .ok_or_else(|| anyhow::anyhow!("builder workflow digest missing"))?;
     ensure!(
-        builder_digest == repo.builder.workflow_digest(),
+        crate::config::valid_commit(builder_digest)
+            && repo
+                .builder
+                .workflow_digest()
+                .is_none_or(|pin| builder_digest == pin),
         "builder workflow digest differs from policy pin"
     );
     ensure!(
