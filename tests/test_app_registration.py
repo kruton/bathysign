@@ -24,7 +24,7 @@ class RegistrationTests(unittest.TestCase):
         self.root = Path(self.temporary.name)
         self.output = self.root / 'app'
         self.app = {'id': 123, 'slug': 'bathysign-test', 'html_url': 'https://github.com/apps/bathysign-test',
-                    'owner': {'login': 'EXAMPLE'}, 'permissions': {'actions': 'read', 'attestations': 'read', 'contents': 'write', 'metadata': 'read'},
+                    'owner': {'login': 'EXAMPLE'}, 'permissions': {'actions': 'read', 'attestations': 'read', 'contents': 'write', 'statuses': 'write', 'metadata': 'read'},
                     'events': ['workflow_run'], 'pem': 'PRIVATE-KEY-CONTENTS', 'webhook_secret': 'WEBHOOK-SECRET-CONTENTS'}
 
     def execute(self, requests, app=None, arguments=(), api_error=None, existing_credential=False):

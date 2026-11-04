@@ -68,9 +68,8 @@
         "repository_id": 1436515323,
         "workflow": ".github/workflows/bathysign-attest.yml",
         "refs": [
-          "refs/tags/v0.2.2"
-        ],
-        "commit": "cccccccccccccccccccccccccccccccccccccccc"
+          "refs/tags/v0.*"
+        ]
       },
       "receipt_key": "receipt",
       "profiles": {
@@ -99,9 +98,8 @@
         "repository_id": 1436515323,
         "workflow": ".github/workflows/bathysign-finalize.yml",
         "refs": [
-          "refs/tags/v0.2.2"
-        ],
-        "commit": "cccccccccccccccccccccccccccccccccccccccc"
+          "refs/tags/v0.*"
+        ]
       },
       "receipt_namespace": "bathysign"
     }

@@ -37,11 +37,28 @@ class ReleaseTests(unittest.TestCase):
             self.assertEqual(predicate["buildDefinition"]["resolvedDependencies"][1]["digest"], {"gitCommit": "d" * 40})
             self.assertEqual(predicate["buildDefinition"]["resolvedDependencies"][2], dependency)
             with mock.patch.dict(release.os.environ, {'BATHYSIGN_JOB_WORKFLOW_SHA':'a'*40}):
-                with self.assertRaisesRegex(ValueError, 'revision differs from policy pin'):
+                with self.assertRaisesRegex(ValueError, 'workflow digest differs from policy pin'):
                     release.final_predicate(policy, 42, 2, {'default_branch':'main'}, {}, [])
             event.write_text(release.json.dumps({"inputs": {**inputs, "source_run": "43"}}))
             with self.assertRaises(ValueError):
                 release.final_predicate(policy, 42, 2, {"id": policy["repository_id"], "owner": {"id": 7}, "default_branch": "main"}, {}, [])
+
+    def test_identity_final_predicate_records_actual_job_revision(self):
+        policy = self.policy()
+        policy['finalizer'].pop('commit')
+        policy['finalizer']['refs'] = ['refs/heads/main']
+        event = Path(self.tmp.name)/'identity-dispatch.json'
+        event.write_text(release.json.dumps({'inputs':{'source_run':'42','source_attempt':'2'}}))
+        environment = {'GITHUB_EVENT_NAME':'workflow_dispatch','GITHUB_REF':'refs/heads/main','GITHUB_EVENT_PATH':str(event),'RUNNER_ENVIRONMENT':'github-hosted',
+            'GITHUB_WORKFLOW_REF':policy['repository']+'/.github/workflows/bathysign-release.yml@refs/heads/main','GITHUB_SHA':'c'*40,'GITHUB_RUN_ID':'99','GITHUB_RUN_ATTEMPT':'1',
+            'BATHYSIGN_JOB_WORKFLOW_REF':'example/workflows/.github/workflows/bathysign-finalize.yml@refs/heads/main'}
+        with mock.patch.dict(release.os.environ, environment, clear=True), mock.patch.object(release, 'verify_workflow_identity'):
+            for revision in ('a'*40, 'b'*40):
+                with mock.patch.dict(release.os.environ, {'BATHYSIGN_JOB_WORKFLOW_SHA':revision}):
+                    predicate = release.final_predicate(policy,42,2,{'default_branch':'main','id':42,'owner':{'id':7}},{},[])
+                    internal = predicate['buildDefinition']['internalParameters']
+                    self.assertEqual(internal['finalizerCommit'], revision)
+                    self.assertEqual(internal['finalizerWorkflowDigest'], revision)
 
     def test_annotated_final_predicate_records_source_commit_and_platform_digest(self):
         policy = self.policy()
@@ -152,11 +169,20 @@ class ReleaseTests(unittest.TestCase):
         receipt, policy = self.receipt(), self.policy()
         source = {"id": 10, "run_attempt": 2, "head_sha": "2" * 40}
         release.validate_transaction(receipt, policy, source, "oss")
-        for section, key, value in [("job", "attempt", 1), ("job", "profile", "google"), ("job", "policy_hash", "0" * 64), ("job", "commit", "0" * 40), ("keys", "upload", "0" * 64), ("lineage", "sha256", "0" * 64), ("signer", "revision", "0" * 40)]:
+        for section, key, value in [("job", "attempt", 1), ("job", "profile", "google"), ("job", "policy_hash", "0" * 64), ("job", "commit", "0" * 40), ("keys", "upload", "0" * 64), ("lineage", "sha256", "0" * 64), ("signer", "revision", "invalid")]:
             bad = copy.deepcopy(receipt)
             bad[section][key] = value
             with self.assertRaises(ValueError, msg=f"accepted {section}.{key}"):
                 release.validate_transaction(bad, policy, source, "oss")
+
+    def test_signer_revision_is_evidence_independent_of_policy_metadata(self):
+        receipt, policy = self.receipt(), self.policy()
+        source = {"id": 10, "run_attempt": 2, "head_sha": "2" * 40}
+        for revision in ("c" * 40, "d" * 40):
+            receipt["signer"]["revision"] = revision
+            release.validate_transaction(receipt, policy, source, "oss")
+        policy.pop("signer_revision")
+        release.validate_transaction(receipt, policy, source, "oss")
 
     def test_policy_and_duplicate_json(self):
         release.validate_policy(self.policy())
@@ -348,6 +374,18 @@ class ReleaseTests(unittest.TestCase):
             predicate['runDetails']['metadata']['invocationId'] = 'unrelated'
             with self.assertRaisesRegex(ValueError, 'predicate invocation differs'):
                 release.verify_provenance(artifact, bundle, policy, source, summary)
+            predicate['runDetails']['metadata']['invocationId'] = invocation
+            policy['builder'].pop('commit')
+            policy['builder']['refs'] = ['refs/heads/main']
+            identity_uri = summary['builder'].replace('refs/tags/v0.2.0', 'refs/heads/main')
+            certificate.update(buildSignerURI=identity_uri, subjectAlternativeName=identity_uri)
+            predicate['runDetails']['builder']['id'] = identity_uri
+            for revision in ('c'*40, 'e'*40):
+                evidence = {**summary, 'builder':identity_uri, 'builder_commit':revision, 'builder_workflow_digest':revision}
+                certificate['buildSignerDigest'] = revision
+                release.verify_provenance(artifact, bundle, policy, source, evidence)
+                with self.assertRaisesRegex(ValueError, 'source commit differs from execution evidence'):
+                    release.verify_provenance(artifact, bundle, policy, source, {**evidence, 'builder_commit':'f'*40})
             bundle.write_bytes(b'tampered')
             with self.assertRaisesRegex(ValueError, 'upstream bundle differs'):
                 release.verify_provenance(artifact, bundle, policy, source, summary)
@@ -358,6 +396,7 @@ class ReleaseTests(unittest.TestCase):
         root = Path(self.tmp.name) / self._testMethodName
         root.mkdir()
         policy_path, event = root/'policy.json', root/'event.json'
+        policy['signer_revision'] = 'c' * 40  # Old metadata must not replace receipt evidence.
         policy_path.write_bytes(release.json_bytes(policy))
         event.write_text(release.json.dumps({'inputs':{'source_run':'10', 'source_attempt':'2'}}))
         finalizer = policy['finalizer']
@@ -390,6 +429,8 @@ class ReleaseTests(unittest.TestCase):
                 self.assertTrue(call.args[1].is_file())
             predicate = release.load((out/'predicate.json').read_bytes())
             dependencies = {row['uri']:row['digest'] for row in predicate['buildDefinition']['resolvedDependencies']}
+            self.assertEqual(dependencies['urn:bathysign:implementation:oss'], {'gitCommit':receipt['signer']['revision']})
+            self.assertNotEqual(receipt['signer']['revision'], policy['signer_revision'])
             self.assertEqual(dependencies['urn:bathysign:policy'], {'sha256':policy['policy_hash']})
             self.assertEqual(dependencies['urn:bathysign:receipt:oss'], {'sha256':release.digest(files['signing-receipt.dsse.json'])})
             self.assertEqual(dependencies['urn:bathysign:unsigned:oss:apk'], {'sha256':release.digest(inputs['apk'])})

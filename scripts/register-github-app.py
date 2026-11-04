@@ -27,7 +27,7 @@ def manifest(organization, repository, name, webhook, callback):
         "hook_attributes": {"url": webhook, "active": True},
         "redirect_url": callback,
         "default_permissions": {
-            "actions": "read", "attestations": "read", "contents": "write",
+            "actions": "read", "attestations": "read", "contents": "write", "statuses": "write",
         },
         "default_events": ["workflow_run"],
         "request_oauth_on_install": False,

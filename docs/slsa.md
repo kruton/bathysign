@@ -4,31 +4,47 @@ Bathysign separates application builds, hosted provenance/finalization jobs, and
 
 ## Trusted reusable workflows
 
-Application CI uploads `unsigned-PROFILE-ATTEMPT` containing `app.apk` and `app.aab`, and `release-support-PROFILE-ATTEMPT` containing `mapping.txt`, `native-debug-symbols.zip`, and `build-info.json`. Call `kruton/bathysign/.github/workflows/bathysign-attest.yml@v0.2.1` for each profile after its build succeeds. The attestor takes only the profile and binds provenance to its own GitHub run/attempt.
+Application CI uploads `unsigned-PROFILE-ATTEMPT` containing `app.apk` and `app.aab`, and `release-support-PROFILE-ATTEMPT` containing `mapping.txt`, `native-debug-symbols.zip`, and `build-info.json`. Call `kruton/bathysign/.github/workflows/bathysign-attest.yml@vVERSION` for each profile after its build succeeds. Replace `vVERSION` in the templates with a release containing identity authorization. The attestor takes only the profile and binds provenance to its own GitHub run/attempt.
 
-The appliance authorizes immutable repository IDs, approved caller workflows, a separate trusted builder repository/workflow/exact release tag and commit, source refs, event types, and runner class. It verifies original-file attestations before signing. Forks and mismatched run attempts fail verification.
+The appliance authorizes repository IDs, caller workflow paths, a separate trusted builder repository/workflow, allowed source and builder refs, event types, and runner class. It verifies original-file attestations before signing. Forks and mismatched run attempts fail verification.
 
-The default-branch `bathysign-release.yml` caller dispatches `bathysign-finalize.yml`, then passes its immutable artifact ID and manifest hash to `bathysign-publish.yml`. The templates are in `config/`. Finalization verifies every policy-defined profile and attests all verified Android outputs and publishing files. Helpers use `$/bathysign` so they execute from the reusable workflow's exact revision.
+The default-branch `bathysign-release.yml` caller dispatches `bathysign-finalize.yml`, then passes its immutable artifact ID and manifest hash to `bathysign-publish.yml`. The templates are in `config/`. Finalization verifies every policy-defined profile and attests all verified Android outputs and publishing files. Helpers use `$/bathysign` so they execute from the reusable workflow's actual revision.
 
-Trusted workflows must come from a published immutable GitHub release. Each builder/finalizer identity has exactly one `refs` entry (for example `refs/tags/v0.2.1`) and a required `commit` containing the reviewed 40-character lowercase Git commit SHA. Both identities must use the same repository ID, tag and commit, with different workflow paths. Branches, wildcard workflow tags and unpinned identities are rejected. Application source `refs` are a separate allowlist and may still include branches and tag patterns.
+A workflow identity contains `repository`, `repository_id`, `workflow`, and `refs`. For example:
 
-The appliance and hosted verifiers check the public repository ID, the release's `immutable: true` and `draft: false` fields, the tag's resolved commit, and the attested workflow identity/digest.
+```json
+{
+  "repository": "kruton/bathysign",
+  "repository_id": 1436515323,
+  "workflow": ".github/workflows/bathysign-attest.yml",
+  "refs": ["refs/tags/v0.*"]
+}
+```
 
-Lightweight tags use the source `commit` as their workflow digest. For an annotated tag, also set `workflow_digest` on both identities to the outer tag object SHA returned by GitHub's git-ref API. GitHub puts that object SHA in `job_workflow_sha` and the certificate's build-signer digest. The verifiers require the reference object to match `workflow_digest`, peel the complete tag chain to the pinned source `commit`, and independently bind the certificate to the workflow digest.
+Use a different workflow path for the finalizer. Each role may select its own allowed refs; both must be separate from the application repository. Refs accept exact branches or tags, or a single trailing wildcard in a tag family. `refs/heads/main` authorizes changes reviewed into that branch; `refs/tags/v0.*` delegates release selection to the repository's release maintainers. Protect those branches, workflow files and tag creation accordingly. Identity authorization does not establish that every revision is safe. Narrow the allowed refs or change the trusted identity when revoking a release channel.
 
-Both pins must agree between builder and finalizer; omitting `workflow_digest` defaults to `commit` for existing lightweight-tag policies. Google federation's `assertion.job_workflow_sha` constraint must use the workflow digest, rather than the resolved source commit. An explicitly approved immutable prerelease is allowed. These public checks require no administrative permission; API failures fail closed. Enabling repository immutability alone does not make an older release acceptable.
+The appliance and hosted verifiers check the public repository ID, attested workflow path and allowed ref. They authenticate the certificate's actual workflow digest and record it as evidence. For annotated tags that digest is the outer tag object; the verifiers resolve the authenticated object by SHA to record its source commit. They never resolve evidence using today's mutable tag head. API errors fail closed. Branch execution digests are source commits. Final provenance records `finalizerCommit` and `finalizerWorkflowDigest`; receipt provenance records `builder_commit` and `builder_workflow_digest`.
 
-Before deploying, obtain the real `kruton/bathysign` repository ID and the selected release's commit, configure both workflow identities, and export the matching public policy. The example's repeated `c` commit and repository IDs are placeholders, not deployment authorization.
+Existing policies may retain `commit` and optional `workflow_digest` as stricter legacy pins. A pinned identity still requires one exact semantic-version release tag, a published immutable release, the pinned reference object, and a tag chain ending at the pinned commit. Omitting `workflow_digest` defaults to `commit` for lightweight tags. A digest pin without a commit pin is rejected. Builder and finalizer pins need not match each other.
 
-### Migrate from branch policies
+## Migrate to identity authorization
 
-1. Publish a new immutable release containing the tag-aware verifier. Do not move or reuse an existing tag. `v0.1.0` predates this migration and is not an immutable release.
-2. Review the release and resolve its tag to a commit (`git rev-parse 'v0.2.1^{commit}'` after fetching it). Use that exact tag in the application's action, attestor, finalizer and publisher references.
-3. Replace the builder/finalizer branch refs with the same exact release ref and add the same source `commit` pin to both identities. For annotated tags, obtain the outer object SHA with `gh api repos/kruton/bathysign/git/ref/tags/v0.2.1 --jq .object.sha` and add it as `workflow_digest` to both. Increment the repository policy `revision`.
-4. Deploy the new signer and updated configuration, then export its matching public policy with the measured deployed signer SHA. Update the caller-owner policy repository through its reviewed change process. The trusted workflow commit and deployed signer revision are separate pins, even when they happen to be equal.
-5. Exercise the full workflow with disposable keys. Confirm the receipt and final publishing handoff identify the approved workflow release and commit before using production keys.
+1. Publish a release containing the identity-aware appliance, administration tool and hosted verifiers. Existing pinned policies remain readable, so prepare and verify these artifacts before changing authorization.
+2. In the appliance configuration, remove `commit` and `workflow_digest` from both workflow identities. Choose stable allowed refs such as `refs/tags/v0.*` or an explicitly protected branch. Keep repository IDs, workflow paths, source restrictions, package names, keys and lineage pins. Increment the repository policy `revision` once; this authorization change produces a new policy hash.
+3. Export the public signing policy without `--signer-revision`. Prepare the matching owner `.github` policy PR and deploy the matching appliance configuration during a signing maintenance window. Pause new signing while the two configurations differ; pending jobs tied to the previous policy hash must finish before migration or be recreated afterward. Merge the policy PR and verify that both policy hashes agree. Keep signing paused through the remaining steps.
+4. Update application workflow references to the identity-aware release. The old hosted verifier cannot read an unpinned policy, so this first migration requires coordinated workflow changes. Keep production paused while preparing a disposable end-to-end validation.
+5. If Google federation currently compares `job_workflow_sha` to an exact release digest, replace that version constraint with the approved publisher workflow identity and allowed ref/channel. Preserve caller repository/owner identity, source-ref restrictions, audience and service-account scope. Cloud authorization is managed separately from the signing policy; inspect the deployed provider mapping and condition before changing it.
+6. Verify that the appliance and owner policy hashes agree, all workflow references resolve to identity-aware verifiers, and cloud authorization accepts the chosen publisher identity. Test a disposable repository through signing, finalization and publishing, then resume production.
 
-Configuration versions 3/4 and receipt formats remain unchanged. The optional `workflow_digest` field preserves existing lightweight-tag policies; annotated tags require its explicit value. The required workflow `commit` field is a deliberate compatibility break: old branch policies must be migrated; there is no branch fallback. Coordinate deployment, policy export and consumer changes during a signing maintenance window. Each later workflow upgrade repeats the tag/pin/policy-revision update; no floating major ref is maintained.
+Configuration versions 3/4, collector API and receipt formats remain unchanged. These protocol versions are separate from Bathysign product versions. Future incompatible protocol changes still need an explicit migration.
+
+## Ordinary upgrades
+
+After migration, authenticate the desired release and pin binaries/container digests in the deployment configuration. Update reusable-workflow references to the chosen release within the already authorized family, and deploy compatible appliance, collector and helper versions in either order. A compatible upgrade needs no owner-policy edit, policy hash change or collector policy revision. No floating tag is required. Change owner policies only when changing authorization, keys, destinations or protocol requirements.
+
+The deployment operator authenticates which software runs. Receipts report the appliance's implementation revision; hosted verifiers validate its format and preserve the actual value per signing profile in final provenance. They do not compare it to a policy-approved product revision. The receipt signature proves possession of an authorized receipt key, not measurement of the running appliance. A compromised appliance can report a false revision. Independent checks of original provenance, source run/attempt, payload preservation, Android signatures, signing keys and lineage remain required.
+
+Commit-status reporting uses a separate installation token. Grant `statuses: write` for rejection notices; lack of that optional permission does not prevent obtaining the core signing token. New GitHub App registrations request the permission up front; existing installations must approve it if notices are desired.
 
 ## Caller-owner policy authority
 
@@ -41,7 +57,7 @@ The policy repository's default branch must be protected. Bathysign resolves it 
 
 Missing, inaccessible, invalid, or unprotected policy sources stop the job. The source application cannot replace the policy with a file from its checkout. The workflow token must be able to read the policy repository; use a public policy repository with the supported public-workflow integration.
 
-Export policy using `bathysign-admin export-release-policy --config /secure/config.json --repository example/app --signer-revision FULL_SHA --out 42.json`. The signer revision is the measured image source revision. Exported policies contain public certificates and authorization constraints; never publish the appliance config or private keys.
+Export policy using `bathysign-admin export-release-policy --config /secure/config.json --repository example/app --out 42.json`. The deprecated `--signer-revision` argument remains optional metadata for older tooling; it does not authorize the running implementation. Exported policies contain public certificates and authorization constraints; never publish the appliance config or private keys.
 
 Policy fetching produces a local `bathysign-policy.json` snapshot containing both configurations and an adjacent `.source.json` recording repository/owner IDs, branch, immutable commit, source paths and digests. The final predicate binds both original configuration files; the signed publishing manifest binds the combined snapshot and origin. Publishers reject configuration drift instead of silently changing an already-attested release. An unrelated commit in the central repository is allowed when both configuration files are identical; provenance continues to bind the original immutable commit.
 
@@ -57,4 +73,4 @@ The Rust crate, signer binary and Python interoperability tools use this checkou
 
 The workflow lint wrapper uses pinned actionlint 1.7.12 with two narrow parser exclusions for the platform's same-revision `$/bathysign` references and `job.workflow_ref`/`job.workflow_sha` fields. Workflow contract tests validate those expressions separately. All other actionlint checks remain enabled.
 
-The v0.2.0 annotated release predates workflow-digest support. Its genuine GitHub attestation uses the tag object SHA while its verifier expects the source commit, so the disposable signing trial correctly rejected it before signing. Keep that immutable release unchanged and use v0.2.1 or later with both pins. Final provenance records the source revision as `finalizerCommit` and the platform claim separately as `finalizerWorkflowDigest`; receipt provenance uses `builder_commit` and `builder_workflow_digest` for the same distinction.
+The v0.2.0 annotated release predates workflow-digest support. Its genuine GitHub attestation remains a regression fixture for keeping the tag object and source commit distinct. Keep historical immutable releases unchanged.

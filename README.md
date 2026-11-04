@@ -57,7 +57,7 @@ For configuration v3, fetch fresh trusted roots through Sigstore's authenticated
 
 For the webhook secret, use a printable value and write exactly those bytes to the file, without a trailing newline; enter the same value in GitHub's webhook settings.
 
-Install the GitHub App on only the selected repositories. Grant repository **Actions: read**, **Artifact attestations: read**, **Contents: read/write**, **Commit statuses: read/write**, and metadata access. Subscribe it to `workflow_run`; configure its webhook at `https://signer.example.net:8443/webhooks/github` with the provisioned secret. Protect the approved workflow and branches against untrusted edits. The signer checks workflow identity, ref, repository immutable ID, commit, run/attempt, event, runner class, and repository visibility. Caller and reusable-builder identities are authorized separately, including independently pinned workflow/helper contents. Authenticated completions from other workflows in configured repositories return HTTP 200 with `{"ignored":true}`; they do not enqueue jobs or count as dispatch failures. See [SLSA integration](docs/slsa.md).
+Install the GitHub App on only the selected repositories. Grant repository **Actions: read**, **Artifact attestations: read**, **Contents: read/write**, **Commit statuses: read/write**, and metadata access. Subscribe it to `workflow_run`; configure its webhook at `https://signer.example.net:8443/webhooks/github` with the provisioned secret. Protect the approved workflow and branches against untrusted edits. The signer checks workflow identity, ref, repository immutable ID, commit, run/attempt, event, runner class, and repository visibility. Caller and reusable-builder identities are authorized separately by repository ID, workflow path and allowed refs. Implementation revisions are recorded as evidence; deployment manifests pin the running binaries. Authenticated completions from other workflows in configured repositories return HTTP 200 with `{"ignored":true}`; they do not enqueue jobs or count as dispatch failures. See [SLSA integration](docs/slsa.md).
 
 Use [android-build.example.yml](config/android-build.example.yml) as a producer template. It attests **each APK/AAB file**, then uploads unsigned artifacts. An attestation for only the GitHub ZIP or source commit is insufficient. The APK and AAB must have matching package/version, minSdk at least 24, and matching DEX/native code. Do not pre-sign or pre-add transparency. Do not post-process code after the attested build. The template's project setup/output paths need adapting; it is not installed into any repository automatically.
 
@@ -172,7 +172,7 @@ See [the workflow and policy guide](docs/slsa.md) for caller-owner policy discov
 
 The [monitoring guide](deploy/monitoring/README.md) describes metrics and alert templates. Application-specific configuration and deployment records belong in a separate operator repository; they are not needed to build or test Bathysign.
 
-Release tags are immutable product snapshots. See [release and branching policy](docs/releases.md#branching-and-version-tags) and [workflow policy migration](docs/slsa.md#migrate-from-branch-policies) for exact tag/commit authorization.
+Release tags are immutable product snapshots. See [release and branching policy](docs/releases.md#branching-and-version-tags) and [identity policy migration](docs/slsa.md#migrate-to-identity-authorization) for version-independent workflow authorization.
 
 ## License
 

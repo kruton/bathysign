@@ -141,6 +141,7 @@ impl Github {
         })
     }
     pub async fn verify_builder_identity(&self, builder: &crate::config::Builder) -> Result<()> {
+        builder.validate()?;
         // Public trust repositories do not need installation-token access. Never send
         // source-repository credentials while resolving their identity/protection.
         let mut public = self.clone();
@@ -153,13 +154,13 @@ impl Github {
                 && metadata["visibility"] == "public",
             "trusted builder repository differs"
         );
-        ensure!(
-            builder.refs.len() == 1
-                && crate::config::release_ref(&builder.refs[0])
-                && crate::config::valid_commit(&builder.commit),
-            "exact trusted release tag and commit required"
-        );
-        let tag = builder.refs[0].strip_prefix("refs/tags/").unwrap();
+        let Some(expected_commit) = builder.commit.as_deref() else {
+            return Ok(());
+        };
+        // validate() guarantees one release ref for a legacy pinned identity.
+        let tag = builder.refs[0]
+            .strip_prefix("refs/tags/")
+            .ok_or_else(|| anyhow::anyhow!("trusted release tag missing"))?;
         let release = public
             .get(&format!(
                 "/repos/{}/releases/tags/{tag}",
@@ -178,7 +179,7 @@ impl Github {
             "trusted release tag differs"
         );
         ensure!(
-            reference["object"]["sha"] == builder.workflow_digest(),
+            reference["object"]["sha"].as_str() == builder.workflow_digest(),
             "trusted workflow digest differs from policy pin"
         );
         let mut object = reference["object"].clone();
@@ -194,7 +195,7 @@ impl Github {
             match object["type"].as_str() {
                 Some("commit") => {
                     ensure!(
-                        sha == builder.commit,
+                        sha == expected_commit,
                         "trusted release commit differs from policy pin"
                     );
                     return Ok(());
@@ -211,6 +212,79 @@ impl Github {
         }
         anyhow::bail!("tag annotation depth exceeded")
     }
+
+    /// Resolve the certificate's immutable execution object, never today's ref head.
+    pub async fn workflow_commit(
+        &self,
+        builder: &crate::config::Builder,
+        reference: &str,
+        digest: &str,
+    ) -> Result<String> {
+        ensure!(
+            crate::config::valid_commit(digest),
+            "invalid workflow execution digest"
+        );
+        ensure!(
+            builder.allows_ref(reference),
+            "workflow ref is not authorized"
+        );
+        if let Some(commit) = &builder.commit {
+            ensure!(
+                builder.workflow_digest() == Some(digest),
+                "workflow digest differs from legacy pin"
+            );
+            return Ok(commit.clone());
+        }
+        if reference.starts_with("refs/heads/") {
+            return Ok(digest.to_owned());
+        }
+        let mut public = self.clone();
+        public.token.clear();
+        let mut sha = digest.to_owned();
+        let mut seen = std::collections::BTreeSet::new();
+        for _ in 0..=8 {
+            ensure!(
+                crate::config::valid_commit(&sha) && seen.insert(sha.clone()),
+                "invalid or cyclic workflow object"
+            );
+            match public
+                .get(&format!("/repos/{}/git/tags/{sha}", builder.repository))
+                .await
+            {
+                Ok(tag) => {
+                    ensure!(
+                        tag["sha"] == sha
+                            && matches!(tag["object"]["type"].as_str(), Some("tag" | "commit")),
+                        "invalid workflow tag object"
+                    );
+                    let target = tag["object"]["sha"]
+                        .as_str()
+                        .ok_or_else(|| anyhow::anyhow!("workflow tag target missing"))?;
+                    ensure!(
+                        crate::config::valid_commit(target),
+                        "invalid workflow tag target"
+                    );
+                    if tag["object"]["type"] == "commit" {
+                        return Ok(target.to_owned());
+                    }
+                    sha = target.to_owned();
+                }
+                Err(error)
+                    if error
+                        .downcast_ref::<HttpFailure>()
+                        .is_some_and(|e| e.0 == 404) =>
+                {
+                    let commit = public
+                        .get(&format!("/repos/{}/git/commits/{sha}", builder.repository))
+                        .await?;
+                    ensure!(commit["sha"] == sha, "workflow commit object differs");
+                    return Ok(sha);
+                }
+                Err(error) => return Err(error),
+            }
+        }
+        anyhow::bail!("workflow tag annotation depth exceeded")
+    }
     pub async fn get(&self, path: &str) -> Result<Value> {
         let response = self
             .request(reqwest::Method::GET, path)?
@@ -224,22 +298,35 @@ impl Github {
         self.installation_for(&repo.name, repo.id, true).await
     }
     pub async fn installation_for(
-        mut self,
+        self,
         repository: &str,
         repository_id: u64,
         write_outputs: bool,
     ) -> Result<Self> {
+        let permissions = if write_outputs {
+            json!({"actions":"read","attestations":"read","contents":"write"})
+        } else {
+            json!({"contents":"read"})
+        };
+        self.installation_permissions(repository, repository_id, permissions)
+            .await
+    }
+    pub async fn reporting_installation(self, repo: &Repository) -> Result<Self> {
+        self.installation_permissions(&repo.name, repo.id, json!({"statuses":"write"}))
+            .await
+    }
+    async fn installation_permissions(
+        mut self,
+        repository: &str,
+        repository_id: u64,
+        permissions: Value,
+    ) -> Result<Self> {
         let info = self
-            .get(&format!("/repos/{}/installation", repository))
+            .get(&format!("/repos/{repository}/installation"))
             .await?;
         let id = info["id"]
             .as_u64()
             .ok_or_else(|| anyhow::anyhow!("installation missing"))?;
-        let permissions = if write_outputs {
-            json!({"actions":"read","attestations":"read","contents":"write","statuses":"write"})
-        } else {
-            json!({"contents":"read"})
-        };
         let response = self
             .request(
                 reqwest::Method::POST,
