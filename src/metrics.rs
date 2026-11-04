@@ -39,11 +39,13 @@ impl ActiveJob {
         Self
     }
 }
+
 impl Drop for ActiveJob {
     fn drop(&mut self) {
         *ACTIVE_JOB.lock().unwrap() = None;
     }
 }
+
 pub fn render() -> String {
     let mut out = String::from(
         "# HELP bathysign_operations_total Completed operations by outcome.\n# TYPE bathysign_operations_total counter\n# HELP bathysign_operation_duration_seconds_total Cumulative operation duration.\n# TYPE bathysign_operation_duration_seconds_total counter\n# HELP bathysign_operation_last_success_timestamp_seconds Last successful operation, Unix time.\n# TYPE bathysign_operation_last_success_timestamp_seconds gauge\n",
@@ -78,6 +80,7 @@ pub fn render() -> String {
     }
     out
 }
+
 pub fn response(body: String) -> ([(axum::http::HeaderName, &'static str); 1], String) {
     (
         [(
@@ -93,6 +96,7 @@ pub struct Stage {
     operation: &'static str,
     start: Instant,
 }
+
 impl Stage {
     pub fn new(operation: &'static str) -> Self {
         Self {
@@ -100,16 +104,19 @@ impl Stage {
             start: Instant::now(),
         }
     }
+
     pub fn next(&mut self, operation: &'static str) {
         observe(self.operation, true, self.start);
         self.operation = operation;
         self.start = Instant::now();
     }
+
     pub fn complete(self) {
         observe(self.operation, true, self.start);
         std::mem::forget(self);
     }
 }
+
 impl Drop for Stage {
     fn drop(&mut self) {
         observe(self.operation, false, self.start);

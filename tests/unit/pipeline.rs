@@ -14,6 +14,7 @@ struct Service {
     attestations: Vec<Value>,
     api: BTreeMap<String, Value>,
 }
+
 async fn endpoint(State(state): State<Arc<Mutex<Service>>>, request: Request<Body>) -> Response {
     if request.uri().path().starts_with("/repos/trusted/builders") {
         assert!(!request.headers().contains_key("authorization"));

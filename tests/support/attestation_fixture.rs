@@ -17,6 +17,7 @@ pub struct Fixture {
     pub commit: String,
     pub root: Vec<u8>,
 }
+
 fn openssl(directory: &Path, args: &[&str]) -> Vec<u8> {
     let output = Command::new("openssl")
         .current_dir(directory)
@@ -30,6 +31,7 @@ fn openssl(directory: &Path, args: &[&str]) -> Vec<u8> {
     );
     output.stdout
 }
+
 impl Fixture {
     pub fn new() -> Self {
         let directory = tempfile::tempdir().unwrap();
@@ -152,6 +154,7 @@ impl Fixture {
             root,
         }
     }
+
     pub fn bundle(&self, statement: &Value, claims: &BTreeMap<u32, String>) -> Value {
         let path = self.directory.path();
         let mut extensions = format!(
@@ -231,6 +234,7 @@ impl Fixture {
         );
         json!({"mediaType":"application/vnd.dev.sigstore.bundle.v0.3+json","verificationMaterial":{"certificate":{"rawBytes":STANDARD.encode(certificate)},"timestampVerificationData":{"rfc3161Timestamps":[{"signedTimestamp":STANDARD.encode(std::fs::read(path.join("response.tsr")).unwrap())}]}},"dsseEnvelope":{"payload":STANDARD.encode(payload),"payloadType":kind,"signatures":[{"sig":STANDARD.encode(std::fs::read(path.join("signature.bin")).unwrap()),"keyid":""}]}})
     }
+
     pub fn root_path(&self) -> PathBuf {
         let path = self.directory.path().join("trusted-root.json");
         std::fs::write(&path, &self.root).unwrap();

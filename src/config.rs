@@ -34,12 +34,15 @@ pub struct Config {
     #[serde(default = "lineage_limit")]
     pub max_lineage_bytes: usize,
 }
+
 fn default_limit() -> usize {
     64 * 1024 * 1024
 }
+
 fn lineage_limit() -> usize {
     DEFAULT_LIMIT
 }
+
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct KeySpec {
@@ -47,6 +50,7 @@ pub struct KeySpec {
     pub certificate: PathBuf,
     pub fingerprint: String,
 }
+
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct TrustRoot {
@@ -54,6 +58,7 @@ pub struct TrustRoot {
     pub sha256: String,
     pub valid_until: u64,
 }
+
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Repository {
@@ -71,6 +76,7 @@ pub struct Repository {
     pub revision: u64,
     pub profiles: BTreeMap<String, ArtifactProfile>,
 }
+
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Builder {
@@ -85,6 +91,7 @@ pub struct Builder {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub workflow_digest: Option<String>,
 }
+
 impl Builder {
     pub fn workflow_digest(&self) -> Option<&str> {
         self.workflow_digest.as_deref().or(self.commit.as_deref())
@@ -125,10 +132,12 @@ impl Builder {
         Ok(())
     }
 }
+
 impl Repository {
     pub fn allows_caller(&self, path: &str) -> bool {
         self.callers.iter().any(|allowed| allowed == path)
     }
+
     pub fn validate_workflow_authorization(&self) -> Result<()> {
         ensure!(
             self.receipt_namespace == "bathysign",
@@ -157,6 +166,7 @@ impl Repository {
         Ok(())
     }
 }
+
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ArtifactProfile {
@@ -168,11 +178,13 @@ pub struct ArtifactProfile {
     pub signing: Signing,
     pub archive_resource: Option<ArchiveResource>,
 }
+
 impl Repository {
     pub fn allows_ref(&self, value: &str) -> bool {
         ref_allowed(&self.refs, value)
     }
 }
+
 /// Exact release refs use the same version syntax as the release coordinator.
 pub fn release_ref(value: &str) -> bool {
     let Some(version) = value.strip_prefix("refs/tags/v") else {
@@ -195,12 +207,14 @@ pub fn release_ref(value: &str) -> bool {
                     .all(|b| b.is_ascii_alphanumeric() || b".-".contains(&b))
         })
 }
+
 pub fn valid_commit(value: &str) -> bool {
     value.len() == 40
         && value
             .bytes()
             .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
 }
+
 /// Exact branches and tags, or a single trailing wildcard in a tag family.
 pub fn workflow_ref(value: &str) -> bool {
     let name = if let Some(name) = value.strip_prefix("refs/heads/") {
@@ -223,12 +237,14 @@ pub fn workflow_ref(value: &str) -> bool {
             .split('/')
             .all(|part| !part.is_empty() && !part.starts_with('.') && !part.ends_with(".lock"))
 }
+
 pub fn valid_hash(value: &str) -> bool {
     value.len() == 64
         && value
             .bytes()
             .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
 }
+
 pub fn valid_profile(value: &str) -> bool {
     !value.is_empty()
         && value.len() <= 32
@@ -236,6 +252,7 @@ pub fn valid_profile(value: &str) -> bool {
             .bytes()
             .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
 }
+
 pub fn ref_allowed(patterns: &[String], value: &str) -> bool {
     patterns.iter().any(|p| {
         p == value
@@ -244,6 +261,7 @@ pub fn ref_allowed(patterns: &[String], value: &str) -> bool {
                     .is_some_and(|prefix| !prefix.contains('*') && value.starts_with(prefix)))
     })
 }
+
 fn workflow_path(value: &str) -> bool {
     let Some(name) = value.strip_prefix(".github/workflows/") else {
         return false;
@@ -253,6 +271,7 @@ fn workflow_path(value: &str) -> bool {
         .or_else(|| name.strip_suffix(".yaml"));
     stem.is_some_and(|stem| !stem.is_empty()) && !name.contains('/') && safe_path(name)
 }
+
 pub fn safe_path(value: &str) -> bool {
     !value.is_empty()
         && value.split('/').all(|s| {
@@ -263,6 +282,7 @@ pub fn safe_path(value: &str) -> bool {
                     .all(|b| b.is_ascii_alphanumeric() || b"-_.".contains(&b))
         })
 }
+
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Signing {
@@ -281,12 +301,15 @@ pub struct Signing {
     pub allow_rollback: bool,
     pub hybrid: Option<HybridConfig>,
 }
+
 fn is_false(value: &bool) -> bool {
     !value
 }
+
 fn rotation_sdk() -> u32 {
     33
 }
+
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct HybridConfig {
@@ -306,6 +329,7 @@ pub struct Loaded {
     pub keys: BTreeMap<String, SigningKey>,
     pub lineages: BTreeMap<(u64, String), RepositoryLineages>,
 }
+
 pub fn now() -> Result<u64> {
     let n = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)?
@@ -313,6 +337,7 @@ pub fn now() -> Result<u64> {
     ensure!(n >= 1_700_000_000, "guest clock is invalid");
     Ok(n)
 }
+
 pub fn read_secret(path: &Path) -> Result<zeroize::Zeroizing<Vec<u8>>> {
     let meta = std::fs::metadata(path)?;
     ensure!(
@@ -321,6 +346,7 @@ pub fn read_secret(path: &Path) -> Result<zeroize::Zeroizing<Vec<u8>>> {
     );
     Ok(zeroize::Zeroizing::new(std::fs::read(path)?))
 }
+
 fn read_lineage(path: &Path, hash: &str, limit: usize) -> Result<Lineage> {
     ensure!(
         std::fs::metadata(path)?.len() <= limit as u64,
@@ -330,6 +356,7 @@ fn read_lineage(path: &Path, hash: &str, limit: usize) -> Result<Lineage> {
     ensure!(crate::sha256(&b) == hash, "lineage hash differs");
     Lineage::read(&b, limit)
 }
+
 impl Loaded {
     pub fn read(path: &Path) -> Result<Self> {
         let config: Config = serde_json::from_slice(&std::fs::read(path)?)?;
@@ -617,6 +644,7 @@ impl Loaded {
             lineages,
         })
     }
+
     pub fn release_policy(
         &self,
         repo: &Repository,
@@ -643,6 +671,7 @@ impl Loaded {
         }
         Ok(policy)
     }
+
     pub fn policy_hash(&self, repo: &Repository) -> Result<String> {
         let mut roles = vec![&repo.receipt_key];
         for p in repo.profiles.values() {
@@ -809,6 +838,7 @@ mod tests {
         serialized.as_object_mut().unwrap().remove("finalizer");
         assert!(serde_json::from_value::<Repository>(serialized).is_err());
     }
+
     #[test]
     fn legacy_exception_is_limited_to_the_existing_apk_identity() {
         let mut signing: Signing = serde_json::from_value(serde_json::json!({
@@ -841,6 +871,7 @@ mod tests {
         assert!(validate_rsa_roles(&signing, &old, &old, &old, &strong).is_err());
         assert!(validate_rsa_roles(&signing, &old, &old, &strong, &old).is_err());
     }
+
     #[test]
     fn replacing_role_key_or_trust_pin_requires_new_policy_revision() {
         let mut config: Config =

@@ -79,9 +79,11 @@ fn key(name: &str) -> SigningKey {
     )
     .unwrap()
 }
+
 fn reference(path: &std::path::Path, sdk: u32) {
     reference_expected(path, sdk, None);
 }
+
 fn reference_expected(path: &std::path::Path, sdk: u32, expected_signer: Option<&str>) {
     let Some(mut classpath) = std::env::var_os("BATHYSIGN_REFERENCE_CLASSES") else {
         return;
@@ -110,6 +112,7 @@ fn reference_expected(path: &std::path::Path, sdk: u32, expected_signer: Option<
         String::from_utf8_lossy(&output.stderr)
     );
 }
+
 fn original() -> Entries {
     if let Some(path) = std::env::var_os("BATHYSIGN_REFERENCE_APK") {
         let mut entries = archive::read(&std::fs::read(path).unwrap()).unwrap();
@@ -134,6 +137,7 @@ fn original() -> Entries {
         ])
     }
 }
+
 #[test]
 fn rotation_signatures_match_android() {
     let a = key("a");
@@ -189,6 +193,7 @@ fn rotation_signatures_match_android() {
         );
     }
 }
+
 #[test]
 fn legacy_apk_identity_is_explicit_and_can_rotate_to_a_stronger_key() {
     let dir = FIXTURES.dir.path();
@@ -370,6 +375,7 @@ fn export_rotation_device_fixtures() {
         }
     }
 }
+
 #[test]
 fn hybrid_and_repeated_rotation_match_android() {
     let a = key("a");
@@ -436,6 +442,7 @@ fn hybrid_and_repeated_rotation_match_android() {
     };
     assert!(apk::sign(&unsigned, &broken).is_err());
 }
+
 #[test]
 fn jar_transparency_and_tamper_detection() {
     let upload = key("a");
@@ -511,6 +518,7 @@ fn jar_transparency_and_tamper_detection() {
         "jarsigner accepted modified signed content"
     );
 }
+
 #[test]
 fn archive_and_lineage_reject_unsafe_inputs() {
     let a = key("a");
@@ -552,6 +560,7 @@ fn archive_and_lineage_reject_unsafe_inputs() {
         4096
     );
 }
+
 #[test]
 fn sixty_four_certificate_history() {
     // Distinct certificates exercise Android's identity history independently of

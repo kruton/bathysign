@@ -16,6 +16,7 @@ pub type Entries = BTreeMap<String, Entry>;
 pub fn read(bytes: &[u8]) -> Result<Entries> {
     read_limited(bytes, MAX_TOTAL)
 }
+
 pub fn read_limited(bytes: &[u8], limit: u64) -> Result<Entries> {
     ensure!(limit > 0 && limit <= MAX_TOTAL, "invalid ZIP limit");
     let mut zip = ZipArchive::new(Cursor::new(bytes))?;
@@ -68,6 +69,7 @@ pub fn read_limited(bytes: &[u8], limit: u64) -> Result<Entries> {
     }
     Ok(entries)
 }
+
 pub fn unsigned(entries: &Entries) -> Result<()> {
     for name in entries.keys() {
         let upper = name.to_ascii_uppercase();
@@ -87,6 +89,7 @@ pub fn unsigned(entries: &Entries) -> Result<()> {
     }
     Ok(())
 }
+
 pub fn write(entries: &Entries, apk: bool) -> Result<Vec<u8>> {
     write_limited(entries, apk, MAX_TOTAL)
 }
@@ -140,6 +143,7 @@ struct LimitedBuffer {
     inner: Cursor<Vec<u8>>,
     limit: usize,
 }
+
 impl Write for LimitedBuffer {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
         let end = self
@@ -158,10 +162,12 @@ impl Write for LimitedBuffer {
         }
         self.inner.write(buf)
     }
+
     fn flush(&mut self) -> std::io::Result<()> {
         Ok(())
     }
 }
+
 impl Seek for LimitedBuffer {
     fn seek(&mut self, position: SeekFrom) -> std::io::Result<u64> {
         let prior = self.inner.position();
@@ -173,6 +179,7 @@ impl Seek for LimitedBuffer {
         Ok(next)
     }
 }
+
 pub fn add(entries: &mut Entries, name: &str, bytes: Vec<u8>) -> Result<()> {
     ensure!(
         entries

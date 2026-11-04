@@ -10,11 +10,13 @@ pub struct Identity {
     pub min_sdk: u32,
     pub shared_uid: bool,
 }
+
 #[derive(Clone)]
 pub enum Field<'a> {
     Bytes(&'a [u8]),
     Number(u64),
 }
+
 pub fn fields(mut bytes: &[u8]) -> Result<Vec<(u32, Field<'_>)>> {
     fn varint(bytes: &mut &[u8]) -> Result<u64> {
         let mut value = 0u64;
@@ -58,6 +60,7 @@ pub fn fields(mut bytes: &[u8]) -> Result<Vec<(u32, Field<'_>)>> {
     }
     Ok(out)
 }
+
 pub fn bytes_field<'a>(fields: &[(u32, Field<'a>)], num: u32) -> Result<Option<&'a [u8]>> {
     let mut found = None;
     for (id, val) in fields {
@@ -71,6 +74,7 @@ pub fn bytes_field<'a>(fields: &[(u32, Field<'a>)], num: u32) -> Result<Option<&
     }
     Ok(found)
 }
+
 pub fn number_field(fields: &[(u32, Field<'_>)], num: u32) -> Result<Option<u64>> {
     let mut found = None;
     for (id, val) in fields {
@@ -84,9 +88,11 @@ pub fn number_field(fields: &[(u32, Field<'_>)], num: u32) -> Result<Option<u64>
     }
     Ok(found)
 }
+
 fn text(fields: &[(u32, Field<'_>)], num: u32) -> Result<String> {
     Ok(std::str::from_utf8(bytes_field(fields, num)?.unwrap_or_default())?.to_string())
 }
+
 fn collect_proto(bytes: &[u8], depth: usize, elements: &mut Vec<Element>) -> Result<()> {
     ensure!(
         depth < 100 && elements.len() < 10_000,
@@ -134,6 +140,7 @@ fn collect_proto(bytes: &[u8], depth: usize, elements: &mut Vec<Element>) -> Res
     }
     Ok(())
 }
+
 fn read_u16(bytes: &[u8], at: usize) -> Result<u16> {
     Ok(u16::from_le_bytes(
         bytes
@@ -142,6 +149,7 @@ fn read_u16(bytes: &[u8], at: usize) -> Result<u16> {
             .try_into()?,
     ))
 }
+
 fn read_u32(bytes: &[u8], at: usize) -> Result<u32> {
     Ok(u32::from_le_bytes(
         bytes
@@ -150,6 +158,7 @@ fn read_u32(bytes: &[u8], at: usize) -> Result<u32> {
             .try_into()?,
     ))
 }
+
 fn string_pool(bytes: &[u8]) -> Result<Vec<String>> {
     let count = read_u32(bytes, 8)? as usize;
     ensure!(count < 100_000, "large AXML string pool");
@@ -209,6 +218,7 @@ fn string_pool(bytes: &[u8]) -> Result<Vec<String>> {
     }
     Ok(out)
 }
+
 fn collect_axml(bytes: &[u8]) -> Result<Vec<Element>> {
     ensure!(
         read_u16(bytes, 0)? == 3 && read_u32(bytes, 4)? as usize == bytes.len(),
@@ -271,6 +281,7 @@ fn collect_axml(bytes: &[u8]) -> Result<Vec<Element>> {
     }
     Ok(elements)
 }
+
 pub fn identity(bytes: &[u8], protobuf: bool) -> Result<Identity> {
     ensure!(bytes.len() <= 8 * 1024 * 1024, "manifest too large");
     let mut elements = vec![];

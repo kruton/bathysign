@@ -114,6 +114,7 @@ macro_rules! from {
                 unsafe {
                     <$for>::from_raw_fd(socket.into_raw_fd())
                 }
+
                 #[cfg(windows)]
                 unsafe {
                     <$for>::from_raw_socket(socket.into_raw_socket())

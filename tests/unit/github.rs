@@ -10,6 +10,7 @@ struct Exchange {
     payload: Option<Value>,
     response: String,
 }
+
 impl Exchange {
     fn json(method: &'static str, path: &str, value: Value) -> Self {
         let body = value.to_string();
@@ -24,10 +25,12 @@ impl Exchange {
             ),
         }
     }
+
     fn public(mut self) -> Self {
         self.token = None;
         self
     }
+
     fn body(mut self, value: Value) -> Self {
         self.payload = Some(value);
         self
@@ -110,6 +113,7 @@ fn fixture(exchanges: Vec<Exchange>) -> (Github, std::thread::JoinHandle<()>) {
         task,
     )
 }
+
 fn repository() -> Repository {
     let config: Config =
         serde_json::from_str(include_str!("../../config/signer.example.json")).unwrap();

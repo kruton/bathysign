@@ -11,6 +11,7 @@ struct Collector {
     requests: Mutex<Vec<(String, Value)>>,
     unavailable: AtomicBool,
 }
+
 async fn collector(
     ExtractState(state): ExtractState<Arc<Collector>>,
     request: Request<Body>,
@@ -36,12 +37,14 @@ async fn collector(
         .body(Body::from("{}"))
         .unwrap()
 }
+
 async fn serve(router: Router) -> (String, tokio::task::JoinHandle<()>) {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let origin = format!("http://{}", listener.local_addr().unwrap());
     let task = tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
     (origin, task)
 }
+
 async fn fixture() -> (App, Arc<Collector>, tokio::task::JoinHandle<()>) {
     crate::initialize_test_crypto();
     let collector_state = Arc::new(Collector::default());
@@ -72,6 +75,7 @@ async fn fixture() -> (App, Arc<Collector>, tokio::task::JoinHandle<()>) {
         task,
     )
 }
+
 fn signed_headers(body: &[u8], secret: &[u8], event: &str) -> HeaderMap {
     use hmac::{Hmac, KeyInit, Mac};
     let mut hmac = Hmac::<sha2::Sha256>::new_from_slice(secret).unwrap();
@@ -86,10 +90,12 @@ fn signed_headers(body: &[u8], secret: &[u8], event: &str) -> HeaderMap {
     headers.insert("x-github-event", event.parse().unwrap());
     headers
 }
+
 fn event(app: &App) -> Value {
     let repo = &app.loaded.config.repositories[0];
     json!({"action":"completed","repository":{"id":repo.id,"full_name":repo.name},"workflow":{"path":repo.callers[0]},"workflow_run":{"id":123,"run_attempt":2,"head_sha":"a".repeat(40),"conclusion":"success"}})
 }
+
 async fn deliver(
     app: &App,
     value: &Value,

@@ -21,6 +21,7 @@ fn header(name: &str, value: &str) -> Vec<u8> {
     }
     out
 }
+
 fn digest_section(name: &str, contents: &[u8]) -> Vec<u8> {
     let mut section = header("Name", name);
     section.extend(header(
@@ -30,6 +31,7 @@ fn digest_section(name: &str, contents: &[u8]) -> Vec<u8> {
     section.extend(b"\r\n");
     section
 }
+
 fn der_tlv(tag: u8, data: &[u8]) -> Vec<u8> {
     let mut out = vec![tag];
     if data.len() < 128 {
@@ -46,9 +48,11 @@ fn der_tlv(tag: u8, data: &[u8]) -> Vec<u8> {
     out.extend(data);
     out
 }
+
 fn seq(parts: &[Vec<u8>]) -> Vec<u8> {
     der_tlv(0x30, &parts.concat())
 }
+
 fn oid(bytes: &[u8]) -> Vec<u8> {
     der_tlv(6, bytes)
 }
@@ -59,6 +63,7 @@ const RSA_OID: &[u8] = &[42, 134, 72, 134, 247, 13, 1, 1, 1];
 fn algorithm(oid_bytes: &[u8]) -> Vec<u8> {
     seq(&[oid(oid_bytes), vec![5, 0]])
 }
+
 fn cms(sf: &[u8], key: &SigningKey) -> Result<Vec<u8>> {
     let cert = x509_cert::Certificate::from_der(&key.certificate)?;
     let version = vec![2, 1, 1];
@@ -81,6 +86,7 @@ fn cms(sf: &[u8], key: &SigningKey) -> Result<Vec<u8>> {
     ]);
     Ok(seq(&[oid(SIGNED_OID), der_tlv(0xa0, &signed)]))
 }
+
 pub fn sign(entries: &mut Entries, key: &SigningKey) -> Result<()> {
     ensure!(key.algorithm() == RSA_SHA256, "AAB upload key must be RSA");
     let mut manifest = b"Manifest-Version: 1.0\r\n\r\n".to_vec();

@@ -42,10 +42,12 @@ pub struct SigningKey {
     pub private: PrivateKey,
     pub certificate: Vec<u8>,
 }
+
 impl SigningKey {
     pub fn load(key_path: &std::path::Path, cert_path: &std::path::Path) -> Result<Self> {
         Self::load_with_rsa_minimum(key_path, cert_path, 2048)
     }
+
     /// Compatibility with an existing APK identity, never for new signing roles.
     pub fn load_legacy_apk(
         key_path: &std::path::Path,
@@ -53,6 +55,7 @@ impl SigningKey {
     ) -> Result<Self> {
         Self::load_with_rsa_minimum(key_path, cert_path, 1024)
     }
+
     fn load_with_rsa_minimum(
         key_path: &std::path::Path,
         cert_path: &std::path::Path,
@@ -144,21 +147,25 @@ impl SigningKey {
         );
         Ok(key)
     }
+
     pub fn algorithm(&self) -> u32 {
         match self.private {
             PrivateKey::Rsa(_) => RSA_SHA256,
             PrivateKey::MlDsa65(_) => ML_DSA,
         }
     }
+
     pub fn rsa_bits(&self) -> Option<usize> {
         match &self.private {
             PrivateKey::Rsa(k) => Some(k.n().bits()),
             PrivateKey::MlDsa65(_) => None,
         }
     }
+
     pub fn fingerprint(&self) -> String {
         crate::sha256(&self.certificate)
     }
+
     pub fn spki(&self) -> Result<Vec<u8>> {
         match &self.private {
             PrivateKey::Rsa(k) => Ok(k.to_public_key().to_public_key_der()?.as_bytes().to_vec()),
@@ -172,6 +179,7 @@ impl SigningKey {
             }
         }
     }
+
     pub fn sign(&self, algorithm: u32, message: &[u8]) -> Result<Vec<u8>> {
         match (&self.private, algorithm) {
             (PrivateKey::Rsa(k), RSA_SHA256) => Ok(
@@ -251,10 +259,12 @@ impl<D: Digest + Send> sigstore_crypto::HashContext for Hash<D> {
     fn update(&mut self, data: &[u8]) {
         self.0.update(data);
     }
+
     fn finalize(self: Box<Self>) -> Vec<u8> {
         self.0.finalize().to_vec()
     }
 }
+
 impl sigstore_crypto::CryptoProvider for RustCryptoProvider {
     fn hash(
         &self,
@@ -268,6 +278,7 @@ impl sigstore_crypto::CryptoProvider for RustCryptoProvider {
             _ => Err(sigstore_crypto::Error::UnsupportedAlgorithm("hash".into())),
         }
     }
+
     fn verify_raw(
         &self,
         scheme: sigstore_crypto::SigningScheme,
@@ -293,6 +304,7 @@ impl sigstore_crypto::CryptoProvider for RustCryptoProvider {
         })();
         result.map_err(|e| sigstore_crypto::Error::UnsupportedAlgorithm(e.to_string()))
     }
+
     fn verify_prehashed(
         &self,
         scheme: sigstore_crypto::SigningScheme,

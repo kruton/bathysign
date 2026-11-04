@@ -15,12 +15,14 @@ struct Envelope {
     payload: String,
     signatures: Vec<Signature>,
 }
+
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Signature {
     keyid: String,
     sig: String,
 }
+
 pub fn pae(payload: &[u8]) -> Vec<u8> {
     let mut out = format!(
         "DSSEv1 {} {} {} ",
@@ -32,6 +34,7 @@ pub fn pae(payload: &[u8]) -> Vec<u8> {
     out.extend_from_slice(payload);
     out
 }
+
 pub fn sign(receipt: &Value, key: &SigningKey) -> Result<Vec<u8>> {
     ensure!(key.algorithm() == RSA_SHA256, "receipt key must be RSA");
     let outputs = receipt["outputs"]
@@ -56,6 +59,7 @@ pub fn sign(receipt: &Value, key: &SigningKey) -> Result<Vec<u8>> {
         }],
     })?)
 }
+
 pub fn verify(envelope: &[u8], certificate: &[u8], fingerprint: &str) -> Result<Value> {
     ensure!(
         crate::config::valid_hash(fingerprint) && crate::sha256(certificate) == fingerprint,

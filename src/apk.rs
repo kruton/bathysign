@@ -30,6 +30,7 @@ pub struct Hybrid<'a> {
     pub classical_lineage: &'a Lineage,
     pub pqc_lineage: &'a Lineage,
 }
+
 pub fn planned_operations(profile: &Profile<'_>) -> Result<Vec<serde_json::Value>> {
     Ok(specs(profile)?.iter().map(|s| serde_json::json!({"scheme_id":s.id,"key_fingerprint":s.key.fingerprint(),"algorithm":s.alg,"min_sdk":s.min,"max_sdk":s.max})).collect())
 }
@@ -37,6 +38,7 @@ struct Layout {
     central: usize,
     eocd: usize,
 }
+
 fn layout(bytes: &[u8]) -> Result<Layout> {
     ensure!(bytes.len() >= 22, "truncated ZIP");
     let start = bytes.len().saturating_sub(22 + 65535);
@@ -64,6 +66,7 @@ fn layout(bytes: &[u8]) -> Result<Layout> {
     );
     Ok(Layout { central, eocd })
 }
+
 pub fn ensure_unsigned(bytes: &[u8]) -> Result<()> {
     let l = layout(bytes)?;
     ensure!(
@@ -72,6 +75,7 @@ pub fn ensure_unsigned(bytes: &[u8]) -> Result<()> {
     );
     Ok(())
 }
+
 fn content_digest<D: Digest>(parts: &[&[u8]]) -> Result<Vec<u8>> {
     let count: usize = parts.iter().map(|p| p.len().div_ceil(1024 * 1024)).sum();
     let mut root = D::new();
@@ -88,6 +92,7 @@ fn content_digest<D: Digest>(parts: &[&[u8]]) -> Result<Vec<u8>> {
     }
     Ok(root.finalize().to_vec())
 }
+
 fn attribute(id: u32, bytes: &[u8]) -> Result<Vec<u8>> {
     let mut value = u32le(id);
     value.extend_from_slice(bytes);
@@ -101,6 +106,7 @@ struct Spec<'a> {
     max: u32,
     attrs: Vec<u8>,
 }
+
 fn specs<'a>(p: &'a Profile<'a>) -> Result<Vec<Spec<'a>>> {
     p.lineage.validate(true)?;
     ensure!(
@@ -204,6 +210,7 @@ fn specs<'a>(p: &'a Profile<'a>) -> Result<Vec<Spec<'a>>> {
     }
     Ok(out)
 }
+
 fn signed_data(spec: &Spec<'_>, digest: &[u8]) -> Result<Vec<u8>> {
     let mut record = u32le(spec.alg);
     record.extend(lp(digest)?);
@@ -216,6 +223,7 @@ fn signed_data(spec: &Spec<'_>, digest: &[u8]) -> Result<Vec<u8>> {
     out.extend(lp(&spec.attrs)?);
     Ok(out)
 }
+
 fn signer(spec: &Spec<'_>, digest: &[u8]) -> Result<Vec<u8>> {
     let data = signed_data(spec, digest)?;
     let mut sig = u32le(spec.alg);
@@ -229,6 +237,7 @@ fn signer(spec: &Spec<'_>, digest: &[u8]) -> Result<Vec<u8>> {
     out.extend(lp(&spec.key.spki()?)?);
     lp(&out)
 }
+
 pub fn sign(bytes: &[u8], profile: &Profile<'_>) -> Result<Vec<u8>> {
     ensure_unsigned(bytes)?;
     let l = layout(bytes)?;
@@ -274,6 +283,7 @@ pub fn sign(bytes: &[u8], profile: &Profile<'_>) -> Result<Vec<u8>> {
     verify_output(&out, profile)?;
     Ok(out)
 }
+
 pub fn verify_output(bytes: &[u8], profile: &Profile<'_>) -> Result<()> {
     let l = layout(bytes)?;
     ensure!(

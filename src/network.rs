@@ -11,6 +11,7 @@ pub fn client_builder() -> anyhow::Result<reqwest::ClientBuilder> {
 pub trait SendMonitored {
     async fn send_monitored(self) -> Result<reqwest::Response, reqwest::Error>;
 }
+
 impl SendMonitored for reqwest::RequestBuilder {
     async fn send_monitored(self) -> Result<reqwest::Response, reqwest::Error> {
         let template = self.try_clone();

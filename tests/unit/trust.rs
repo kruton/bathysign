@@ -8,6 +8,7 @@ struct MemoryRepository {
     offline: bool,
     corrupt_target: bool,
 }
+
 impl MemoryRepository {
     fn fixture(checkpoint: &Checkpoint) -> Self {
         Self {
@@ -24,6 +25,7 @@ impl MemoryRepository {
         }
     }
 }
+
 impl Repository for MemoryRepository {
     fn fetch_metadata<'a>(
         &'a self,
@@ -42,6 +44,7 @@ impl Repository for MemoryRepository {
             Ok(bytes)
         })
     }
+
     fn fetch_target<'a>(
         &'a self,
         path: &'a str,
