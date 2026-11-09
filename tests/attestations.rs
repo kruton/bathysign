@@ -309,9 +309,9 @@ fn authenticated_slsa_certificates_cannot_substitute_repository_invocation_or_ru
         )
         .unwrap_err();
         assert!(
-            error.to_string().contains("claim")
-                || error.to_string().contains("eligible")
-                || error.to_string().contains("builder workflow digest"),
+            format!("{error:#}").contains("claim")
+                || format!("{error:#}").contains("eligible")
+                || format!("{error:#}").contains("builder workflow digest"),
             "claim {claim}: {error}"
         );
     }
@@ -398,7 +398,10 @@ fn provenance_statement_shape_and_workflow_policy_fail_before_untrusted_data_is_
             2,
         )
         .unwrap_err();
-        assert!(error.to_string().contains(expected), "{pointer}: {error}");
+        assert!(
+            format!("{error:#}").contains(expected),
+            "{pointer}: {error}"
+        );
     }
     let mut message = bundle.clone();
     message.as_object_mut().unwrap().remove("dsseEnvelope");
@@ -414,7 +417,7 @@ fn provenance_statement_shape_and_workflow_policy_fail_before_untrusted_data_is_
         2,
     )
     .unwrap_err();
-    assert!(error.to_string().contains("requires DSSE"), "{error}");
+    assert!(format!("{error:#}").contains("requires DSSE"), "{error}");
 }
 
 #[test]
@@ -440,6 +443,7 @@ fn trusted_root_pins_expiry_and_timestamp_evidence_are_mandatory() {
             2
         )
         .unwrap_err()
+        .root_cause()
         .to_string()
         .contains("invalid subject digest")
     );
@@ -455,6 +459,7 @@ fn trusted_root_pins_expiry_and_timestamp_evidence_are_mandatory() {
             2
         )
         .unwrap_err()
+        .root_cause()
         .to_string()
         .contains("trust material expired")
     );
@@ -471,6 +476,7 @@ fn trusted_root_pins_expiry_and_timestamp_evidence_are_mandatory() {
             2
         )
         .unwrap_err()
+        .root_cause()
         .to_string()
         .contains("trust-root hash differs")
     );
@@ -514,6 +520,7 @@ fn trusted_root_pins_expiry_and_timestamp_evidence_are_mandatory() {
             2
         )
         .unwrap_err()
+        .root_cause()
         .to_string()
         .contains("requires trusted timestamp")
     );

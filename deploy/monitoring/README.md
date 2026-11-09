@@ -56,6 +56,22 @@ Metrics:
   can reset those counters. Scrapes return 503 on database failure, not zeroes.
   Snapshots query the ledger; monitor scrape duration as history grows.
 
+Rejected jobs can be inspected with authenticated `GET /v1/jobs/{id}`. The
+`job.failed` event's `data.diagnostic` includes `stage` and `check` alongside
+transport status/flags.  For example, `stage: "apk_provenance", check:
+"signature"` identifies APK attestation signature verification.
+Unknown/uninstrumented failures use `null`.  The stage labels cover policy
+admission, downloads, APK/AAB provenance, Android validation, signing,
+receipts, and publishing; their closed vocabulary is defined in
+[diagnostic.rs](../../src/diagnostic.rs).
+
+If all attestation candidates fail, `check` identifies the last rejected
+candidate's verification step; `no_matching_attestation` means there were no
+candidates or no typed check was available. It does not establish that every
+candidate failed the same check. An invalid candidate's original error chain is
+discarded, so diagnostic reporting does not change retry or acceptance behavior.
+Existing ledger events are unchanged; new diagnostics require an updated signer.
+
 Network behavior: GitHub requests retain the 300 second total request deadline;
 ledger requests retain 30 seconds. Safe GET requests retry up to twice on
 connection failures, timeouts, or HTTP 408/429/500/502/503/504, with 1/2 second

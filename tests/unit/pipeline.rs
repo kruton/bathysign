@@ -386,6 +386,7 @@ async fn ineligible_jobs_stop_before_contacting_github_or_loading_keys() {
             process(&loaded, &ledger, &claim)
                 .await
                 .unwrap_err()
+                .root_cause()
                 .to_string()
                 .contains(message)
         );
@@ -400,6 +401,7 @@ async fn ineligible_jobs_stop_before_contacting_github_or_loading_keys() {
         process(&loaded, &ledger, &original)
             .await
             .unwrap_err()
+            .root_cause()
             .to_string()
             .contains("job trust mode differs")
     );
@@ -550,7 +552,13 @@ async fn artifact_cache_binds_run_repository_archive_digest_and_each_consumed_fi
 #[tokio::test]
 async fn provenance_requires_a_policy_valid_attestation_not_just_an_api_row() {
     crate::initialize_test_crypto();
-    let loaded = policy_fixture();
+    let mut loaded = policy_fixture();
+    for trust in loaded.config.trust_roots.values_mut() {
+        trust.valid_until = crate::config::now().unwrap() + 3600;
+        trust.file = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/github-trusted-root.json");
+        trust.sha256 = crate::sha256(&std::fs::read(&trust.file).unwrap());
+    }
     let repo = &loaded.config.repositories[0];
     let state = Arc::new(Mutex::new(Service::default()));
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -575,26 +583,28 @@ async fn provenance_requires_a_policy_valid_attestation_not_just_an_api_row() {
         lease: "lease".into(),
         attempt: 1,
     };
-    assert!(
-        provenance(&github, &loaded, repo, &claim, b"artifact", None)
-            .await
-            .unwrap_err()
-            .to_string()
-            .contains("no valid attestation")
+    let error = provenance(&github, &loaded, repo, &claim, b"artifact", None)
+        .await
+        .unwrap_err();
+    assert_eq!(
+        error.downcast_ref::<AttestationCheck>(),
+        Some(&AttestationCheck::NoMatchingAttestation)
     );
     state.lock().unwrap().attestations = vec![json!({"repository_id":repo.id,"bundle":{}})];
-    assert!(
-        provenance(&github, &loaded, repo, &claim, b"artifact", None)
-            .await
-            .unwrap_err()
-            .to_string()
-            .contains("no valid attestation")
+    let error = provenance(&github, &loaded, repo, &claim, b"artifact", None)
+        .await
+        .unwrap_err();
+    assert_eq!(
+        error.downcast_ref::<AttestationCheck>(),
+        Some(&AttestationCheck::BundleFormat)
     );
+    assert!(format!("{error:#}").contains("no valid attestation"));
     state.lock().unwrap().attestations = vec![json!({"repository_id":0,"bundle":{}})];
     assert!(
         provenance(&github, &loaded, repo, &claim, b"artifact", None)
             .await
             .unwrap_err()
+            .root_cause()
             .to_string()
             .contains("attestation repository differs")
     );
@@ -612,11 +622,23 @@ async fn signed_inputs_missing_manifests_and_different_code_fail_before_signing(
     let repo = &loaded.config.repositories[0];
     let apk = archive::read(&original.apk_bytes).unwrap();
     let aab = archive::read(&original.aab_bytes).unwrap();
-    for (case, expected) in [
-        ("signed", "JAR signature"),
-        ("manifest", "bundle manifest missing"),
-        ("dex", "APK DEX does not match AAB"),
-        ("package", "package or version differs"),
+    for (case, expected, point) in [
+        ("signed", "JAR signature", FailurePoint::ApkUnsigned),
+        (
+            "manifest",
+            "bundle manifest missing",
+            FailurePoint::AabManifest,
+        ),
+        (
+            "dex",
+            "APK DEX does not match AAB",
+            FailurePoint::TransparencyApk,
+        ),
+        (
+            "package",
+            "package or version differs",
+            FailurePoint::PackageVersion,
+        ),
     ] {
         let mut apk = apk.clone();
         let mut aab = aab.clone();
@@ -658,7 +680,8 @@ async fn signed_inputs_missing_manifests_and_different_code_fail_before_signing(
         .finish(inputs, crate::metrics::Stage::new("verify_inputs"))
         .await
         .unwrap_err();
-        assert!(error.to_string().contains(expected), "{case}: {error}");
+        assert_eq!(error.downcast_ref::<FailurePoint>(), Some(&point), "{case}");
+        assert!(format!("{error:#}").contains(expected), "{case}: {error}");
     }
 }
 
@@ -769,11 +792,14 @@ async fn signing_admission_binds_repository_builder_run_attempt_event_and_caller
     }
     .verify_and_finish(crate::metrics::Stage::new("verify_inputs"))
     .await;
-    assert!(
-        result
-            .unwrap_err()
-            .to_string()
-            .contains("no valid attestation")
+    let error = result.unwrap_err();
+    assert_eq!(
+        error.downcast_ref::<FailurePoint>(),
+        Some(&FailurePoint::ApkProvenance)
+    );
+    assert_eq!(
+        error.downcast_ref::<AttestationCheck>(),
+        Some(&AttestationCheck::NoMatchingAttestation)
     );
     for (endpoint, pointer, value, expected) in [
         (
@@ -875,7 +901,7 @@ async fn signing_admission_binds_repository_builder_run_attempt_event_and_caller
         .await
         .unwrap_err();
         assert!(
-            error.to_string().contains(expected),
+            format!("{error:#}").contains(expected),
             "{endpoint}{pointer}: {error}"
         );
     }

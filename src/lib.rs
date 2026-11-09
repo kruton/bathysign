@@ -5,6 +5,7 @@ pub mod attestation;
 pub mod collector;
 pub mod config;
 pub mod crypto;
+mod diagnostic;
 pub mod github;
 pub mod jar;
 pub mod ledger;

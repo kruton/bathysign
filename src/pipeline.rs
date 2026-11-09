@@ -1,3 +1,4 @@
+use crate::diagnostic::{AttestationCheck, FailurePoint};
 use crate::{
     apk, archive,
     config::{Loaded, Repository},
@@ -120,6 +121,7 @@ async fn provenance(
         )
         .await?;
 
+    let mut rejected_check = AttestationCheck::NoMatchingAttestation;
     for b in bundles {
         let bundle = github.attestation_bundle(repo.id, &b).await?;
         let result = if let Some(active) = active {
@@ -145,6 +147,12 @@ async fn provenance(
                 job.job.attempt,
             )
         };
+        if let Err(error) = &result {
+            rejected_check = error
+                .downcast_ref::<AttestationCheck>()
+                .copied()
+                .unwrap_or(AttestationCheck::NoMatchingAttestation);
+        }
         if let Ok(mut result) = result {
             let prefix = format!(
                 "https://github.com/{}/{}@",
@@ -164,7 +172,7 @@ async fn provenance(
             return Ok((result, serde_json::to_vec(&bundle)?));
         }
     }
-    anyhow::bail!("no valid attestation satisfies signing policy")
+    Err(anyhow::anyhow!("no valid attestation satisfies signing policy").context(rejected_check))
 }
 
 pub async fn process(loaded: &Loaded, ledger: &Ledger, claim: &Claimed) -> Result<()> {
@@ -177,48 +185,56 @@ pub async fn process_with_trust(
     claim: &Claimed,
     active: Option<&crate::trust::Active>,
 ) -> Result<()> {
-    ensure!(
-        loaded.config.trust_authority.is_some() == active.is_some(),
-        "job trust mode differs"
-    );
-    if let Some(active) = active {
-        active.check()?;
+    let mut point = FailurePoint::Trust;
+    let result = async {
         ensure!(
-            Some(&active.checkpoint.authority) == loaded.config.trust_authority.as_ref(),
-            "job trust authority differs"
+            loaded.config.trust_authority.is_some() == active.is_some(),
+            "job trust mode differs"
         );
+        if let Some(active) = active {
+            active.check()?;
+            ensure!(
+                Some(&active.checkpoint.authority) == loaded.config.trust_authority.as_ref(),
+                "job trust authority differs"
+            );
+        }
+        point = FailurePoint::JobPolicy;
+        let stage = crate::metrics::Stage::new("verify_inputs");
+        let repo = loaded
+            .config
+            .repositories
+            .iter()
+            .find(|r| r.id == claim.job.repository_id)
+            .ok_or_else(|| anyhow::anyhow!("repository is not allowed"))?;
+        ensure!(claim.job.version == 2, "unsupported job version");
+        let artifact_profile = repo
+            .profiles
+            .get(&claim.job.profile)
+            .ok_or_else(|| anyhow::anyhow!("profile is not allowed"))?;
+        ensure!(
+            claim.job.policy_hash == loaded.policy_hash(repo)?
+                && claim.job.revision == repo.revision,
+            "stale signing policy"
+        );
+        point = FailurePoint::GithubInstallation;
+        let github = Github::connect(&loaded.config)
+            .await?
+            .installation(repo)
+            .await?;
+        OutputJob {
+            loaded,
+            ledger,
+            claim,
+            active,
+            github: &github,
+            repo,
+            artifact_profile,
+        }
+        .verify_and_finish(stage)
+        .await
     }
-    let stage = crate::metrics::Stage::new("verify_inputs");
-    let repo = loaded
-        .config
-        .repositories
-        .iter()
-        .find(|r| r.id == claim.job.repository_id)
-        .ok_or_else(|| anyhow::anyhow!("repository is not allowed"))?;
-    ensure!(claim.job.version == 2, "unsupported job version");
-    let artifact_profile = repo
-        .profiles
-        .get(&claim.job.profile)
-        .ok_or_else(|| anyhow::anyhow!("profile is not allowed"))?;
-    ensure!(
-        claim.job.policy_hash == loaded.policy_hash(repo)? && claim.job.revision == repo.revision,
-        "stale signing policy"
-    );
-    let github = Github::connect(&loaded.config)
-        .await?
-        .installation(repo)
-        .await?;
-    OutputJob {
-        loaded,
-        ledger,
-        claim,
-        active,
-        github: &github,
-        repo,
-        artifact_profile,
-    }
-    .verify_and_finish(stage)
-    .await
+    .await;
+    point.attach(result)
 }
 
 // Only the provenance-verifying path constructs this input in production.
@@ -246,106 +262,125 @@ struct OutputJob<'a> {
 
 impl OutputJob<'_> {
     async fn verify_and_finish(self, stage: crate::metrics::Stage) -> Result<()> {
-        let loaded = self.loaded;
-        let claim = self.claim;
-        let repo = self.repo;
-        let artifact_profile = self.artifact_profile;
-        let github = self.github;
-        let active = self.active;
-        tracing::info!(job=%claim.job.id, "verifying builder and source run");
-        github.verify_builder_identity(&repo.builder).await?;
-        let metadata = github.get(&format!("/repos/{}", repo.name)).await?;
-        ensure!(
-            metadata["id"].as_u64() == Some(repo.id),
-            "repository ID changed"
-        );
-        ensure!(
-            metadata["visibility"] == repo.visibility,
-            "repository visibility changed"
-        );
-        let run = github
-            .get(&format!(
-                "/repos/{}/actions/runs/{}/attempts/{}",
-                repo.name, claim.job.run_id, claim.job.attempt
-            ))
+        let mut point = FailurePoint::BuilderIdentity;
+        let result = async {
+            let loaded = self.loaded;
+            let claim = self.claim;
+            let repo = self.repo;
+            let artifact_profile = self.artifact_profile;
+            let github = self.github;
+            let active = self.active;
+            tracing::info!(job=%claim.job.id, "verifying builder and source run");
+            github.verify_builder_identity(&repo.builder).await?;
+            point = FailurePoint::RepositoryIdentity;
+            let metadata = github.get(&format!("/repos/{}", repo.name)).await?;
+            ensure!(
+                metadata["id"].as_u64() == Some(repo.id),
+                "repository ID changed"
+            );
+            ensure!(
+                metadata["visibility"] == repo.visibility,
+                "repository visibility changed"
+            );
+            point = FailurePoint::SourceRun;
+            let run = github
+                .get(&format!(
+                    "/repos/{}/actions/runs/{}/attempts/{}",
+                    repo.name, claim.job.run_id, claim.job.attempt
+                ))
+                .await?;
+            ensure!(
+                run["id"].as_u64() == Some(claim.job.run_id)
+                    && run["run_attempt"].as_u64() == Some(claim.job.attempt)
+                    && run["status"] == "completed"
+                    && run["conclusion"] == "success"
+                    && run["head_sha"] == claim.job.commit,
+                "run attempt is not an eligible successful build"
+            );
+            ensure!(
+                run["head_repository"]["id"].as_u64() == Some(repo.id),
+                "fork builds are forbidden"
+            );
+            ensure!(
+                repo.events.iter().any(|e| run["event"] == *e),
+                "run event is not eligible"
+            );
+            point = FailurePoint::CallerWorkflow;
+            let workflow = github
+                .get(&format!(
+                    "/repos/{}/actions/workflows/{}",
+                    repo.name,
+                    run["workflow_id"]
+                        .as_u64()
+                        .ok_or_else(|| anyhow::anyhow!("workflow missing"))?
+                ))
+                .await?;
+            ensure!(
+                workflow["path"]
+                    .as_str()
+                    .is_some_and(|p| repo.allows_caller(p)),
+                "workflow differs from policy"
+            );
+            let mut cache = BTreeMap::new();
+            tracing::info!(job=%claim.job.id, "downloading unsigned artifacts");
+            point = FailurePoint::ApkDownload;
+            let (apk_bytes, apk_meta) = artifact(
+                github,
+                repo,
+                &run,
+                &artifact_profile.apk_artifact,
+                &artifact_profile.apk_file,
+                &mut cache,
+            )
             .await?;
-        ensure!(
-            run["id"].as_u64() == Some(claim.job.run_id)
-                && run["run_attempt"].as_u64() == Some(claim.job.attempt)
-                && run["status"] == "completed"
-                && run["conclusion"] == "success"
-                && run["head_sha"] == claim.job.commit,
-            "run attempt is not an eligible successful build"
-        );
-        ensure!(
-            run["head_repository"]["id"].as_u64() == Some(repo.id),
-            "fork builds are forbidden"
-        );
-        ensure!(
-            repo.events.iter().any(|e| run["event"] == *e),
-            "run event is not eligible"
-        );
-        let workflow = github
-            .get(&format!(
-                "/repos/{}/actions/workflows/{}",
-                repo.name,
-                run["workflow_id"]
-                    .as_u64()
-                    .ok_or_else(|| anyhow::anyhow!("workflow missing"))?
-            ))
+            point = FailurePoint::AabDownload;
+            let (aab_bytes, aab_meta) = artifact(
+                github,
+                repo,
+                &run,
+                &artifact_profile.aab_artifact,
+                &artifact_profile.aab_file,
+                &mut cache,
+            )
             .await?;
-        ensure!(
-            workflow["path"]
-                .as_str()
-                .is_some_and(|p| repo.allows_caller(p)),
-            "workflow differs from policy"
-        );
-        let mut cache = BTreeMap::new();
-        tracing::info!(job=%claim.job.id, "downloading unsigned artifacts");
-        let (apk_bytes, apk_meta) = artifact(
-            github,
-            repo,
-            &run,
-            &artifact_profile.apk_artifact,
-            &artifact_profile.apk_file,
-            &mut cache,
-        )
-        .await?;
-        let (aab_bytes, aab_meta) = artifact(
-            github,
-            repo,
-            &run,
-            &artifact_profile.aab_artifact,
-            &artifact_profile.aab_file,
-            &mut cache,
-        )
-        .await?;
-        drop(cache);
-        tracing::info!(job=%claim.job.id, "verifying artifact provenance");
-        let (apk_provenance, apk_bundle) =
-            provenance(github, loaded, repo, claim, &apk_bytes, active).await?;
-        let (aab_provenance, aab_bundle) =
-            provenance(github, loaded, repo, claim, &aab_bytes, active).await?;
-        self.finish(
-            VerifiedArtifacts {
-                apk_bytes,
-                aab_bytes,
-                apk_meta,
-                aab_meta,
-                apk_provenance,
-                aab_provenance,
-                apk_bundle,
-                aab_bundle,
-            },
-            stage,
-        )
-        .await
+            drop(cache);
+            tracing::info!(job=%claim.job.id, "verifying artifact provenance");
+            point = FailurePoint::ApkProvenance;
+            let (apk_provenance, apk_bundle) =
+                provenance(github, loaded, repo, claim, &apk_bytes, active).await?;
+            point = FailurePoint::AabProvenance;
+            let (aab_provenance, aab_bundle) =
+                provenance(github, loaded, repo, claim, &aab_bytes, active).await?;
+            self.finish(
+                VerifiedArtifacts {
+                    apk_bytes,
+                    aab_bytes,
+                    apk_meta,
+                    aab_meta,
+                    apk_provenance,
+                    aab_provenance,
+                    apk_bundle,
+                    aab_bundle,
+                },
+                stage,
+            )
+            .await
+        }
+        .await;
+        point.attach(result)
     }
 
-    async fn finish(
+    async fn finish(self, inputs: VerifiedArtifacts, stage: crate::metrics::Stage) -> Result<()> {
+        let mut point = FailurePoint::ApkUnsigned;
+        let result = self.finish_diagnosed(inputs, stage, &mut point).await;
+        point.attach(result)
+    }
+
+    async fn finish_diagnosed(
         self,
         inputs: VerifiedArtifacts,
         mut stage: crate::metrics::Stage,
+        point: &mut FailurePoint,
     ) -> Result<()> {
         let Self {
             loaded,
@@ -368,30 +403,40 @@ impl OutputJob<'_> {
         } = inputs;
         tracing::info!(job=%claim.job.id, "validating unsigned Android artifacts");
         apk::ensure_unsigned(&apk_bytes)?;
+        *point = FailurePoint::ApkArchive;
         let mut apk_entries = archive::read_limited(&apk_bytes, github.max_bytes as u64)?;
+        *point = FailurePoint::AabArchive;
         let mut aab_entries = archive::read_limited(&aab_bytes, github.max_bytes as u64)?;
         let apk_input_sha256 = crate::sha256(&apk_bytes);
         let aab_input_sha256 = crate::sha256(&aab_bytes);
         drop(apk_bytes);
         drop(aab_bytes);
+        *point = FailurePoint::ApkUnsigned;
         archive::unsigned(&apk_entries)?;
+        *point = FailurePoint::AabArchive;
         archive::unsigned(&aab_entries)?;
+        *point = FailurePoint::AabManifest;
         let aab_manifest = &aab_entries
             .get("base/manifest/AndroidManifest.xml")
             .ok_or_else(|| anyhow::anyhow!("bundle manifest missing"))?
             .bytes;
+        *point = FailurePoint::ApkManifest;
         let apk_manifest = &apk_entries
             .get("AndroidManifest.xml")
             .ok_or_else(|| anyhow::anyhow!("APK manifest missing"))?
             .bytes;
+        *point = FailurePoint::AabManifest;
         let aab_id = manifest::identity(aab_manifest, true)?;
+        *point = FailurePoint::ApkManifest;
         let apk_id = manifest::identity(apk_manifest, false)?;
+        *point = FailurePoint::PackageVersion;
         ensure!(
             apk_id.package == artifact_profile.package
                 && aab_id.package == artifact_profile.package
                 && apk_id.version == aab_id.version,
             "package or version differs"
         );
+        *point = FailurePoint::AndroidSdk;
         ensure!(
             apk_id.min_sdk >= 24
                 && aab_id.min_sdk >= 24
@@ -399,9 +444,12 @@ impl OutputJob<'_> {
                 && !aab_id.shared_uid,
             "unsupported SDK or sharedUserId"
         );
+        *point = FailurePoint::TransparencyStatement;
         let statement =
             transparency::statement(&aab_entries, artifact_profile.archive_resource.as_ref())?;
+        *point = FailurePoint::TransparencyApk;
         transparency::check_apk(&statement, &apk_entries)?;
+        *point = FailurePoint::SigningKeys;
         let signing = &artifact_profile.signing;
         let key = |id: &str| {
             loaded
@@ -429,7 +477,9 @@ impl OutputJob<'_> {
             rotation_min_sdk: signing.rotation_min_sdk,
             hybrid,
         };
+        *point = FailurePoint::InputsAudit;
         ledger.event(claim,"inputs.verified",json!({"apk":apk_provenance,"aab":aab_provenance,"apk_artifact_id":apk_meta["id"],"aab_artifact_id":aab_meta["id"],"package":artifact_profile.package,"version_code":apk_id.version})).await?;
+        *point = FailurePoint::SignTransparency;
         stage.next("sign_outputs");
         tracing::info!(job=%claim.job.id, "signing code transparency");
         let intent = |operation: &str, k: &crate::crypto::SigningKey| json!({"operation":operation,"key_fingerprint":k.fingerprint(),"policy_hash":claim.job.policy_hash,"lineage_sha256":signing.lineage_sha256,"apk_input_sha256":apk_input_sha256,"aab_input_sha256":aab_input_sha256});
@@ -453,6 +503,7 @@ impl OutputJob<'_> {
                 json!({"operation":"code-transparency","sha256":crate::sha256(&jwt)}),
             )
             .await?;
+        *point = FailurePoint::SignAab;
         ledger
             .event(claim, "sign.intent", intent("aab-cms", upload_key))
             .await?;
@@ -488,6 +539,7 @@ impl OutputJob<'_> {
                 json!({"operation":"aab-cms","sha256":crate::sha256(&signed_aab)}),
             )
             .await?;
+        *point = FailurePoint::SignApk;
         for operation in apk::planned_operations(&profile)? {
             ledger.event(claim, "sign.intent", operation).await?;
         }
@@ -513,6 +565,7 @@ impl OutputJob<'_> {
             transparency::check_apk(&statement, &final_apk)?;
         }
         ledger.event(claim,"sign.result",json!({"operation":"apk","sha256":crate::sha256(&signed_apk),"operations":apk::planned_operations(&profile)?,"lineage_sha256":lineage.digest()?})).await?;
+        *point = FailurePoint::Receipt;
         let mut outputs = BTreeMap::from([
             ("app-signed.apk".to_string(), signed_apk),
             ("app-signed.aab".to_string(), signed_aab),
@@ -571,6 +624,7 @@ impl OutputJob<'_> {
             )
             .await?;
         outputs.insert("signing-receipt.dsse.json".into(), signed_receipt);
+        *point = FailurePoint::PublishOutputs;
         stage.next("publish_outputs");
         tracing::info!(job=%claim.job.id, "publishing signed outputs");
         let release = github
