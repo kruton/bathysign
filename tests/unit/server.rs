@@ -455,6 +455,9 @@ async fn job_outcomes_distinguish_retryable_errors_and_log_only_safe_diagnostics
         (anyhow::Error::new(request_error), true),
     ] {
         collector.requests.lock().unwrap().clear();
+        let error = error
+            .context(crate::diagnostic::AttestationCheck::Signature)
+            .context(crate::diagnostic::FailurePoint::ApkProvenance);
         report_job(
             &app,
             claim(),
@@ -465,6 +468,11 @@ async fn job_outcomes_distinguish_retryable_errors_and_log_only_safe_diagnostics
         let requests = collector.requests.lock().unwrap();
         assert_eq!(requests.len(), 2);
         assert_eq!(requests[0].1["kind"], "job.failed");
+        assert_eq!(
+            requests[0].1["data"]["diagnostic"]["stage"],
+            "apk_provenance"
+        );
+        assert_eq!(requests[0].1["data"]["diagnostic"]["check"], "signature");
         assert_eq!(
             requests[0].1["data"]["kind"],
             if retry {

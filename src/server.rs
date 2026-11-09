@@ -35,6 +35,8 @@ fn failure_diagnostic(error: &anyhow::Error) -> Value {
         .find_map(|e| e.downcast_ref::<crate::github::HttpFailure>().map(|e| e.0))
         .or_else(|| transport.and_then(|e| e.status()).map(|s| s.as_u16()));
     json!({
+        "stage": error.downcast_ref::<crate::diagnostic::FailurePoint>(),
+        "check": error.downcast_ref::<crate::diagnostic::AttestationCheck>(),
         "http_status": status,
         "timeout": transport.is_some_and(|e| e.is_timeout()),
         "connect": transport.is_some_and(|e| e.is_connect()),
@@ -478,6 +480,31 @@ pub async fn provisioning(path: &Path) -> Result<()> {
 #[cfg(test)]
 mod diagnostic_tests {
     use super::*;
+
+    #[test]
+    fn diagnostics_only_export_typed_labels_through_arbitrary_contexts() {
+        use crate::diagnostic::{AttestationCheck, FailurePoint};
+        let error =
+            anyhow::anyhow!("Authorization: Bearer SENSITIVE_TOKEN; private key SENSITIVE_KEY")
+                .context(AttestationCheck::Signature)
+                .context("https://example.invalid/SENSITIVE_URL?signature=SENSITIVE_SIGNATURE")
+                .context(FailurePoint::ApkProvenance)
+                .context("stage=SENSITIVE_STAGE check=SENSITIVE_CHECK");
+        let diagnostic = failure_diagnostic(&error);
+        assert_eq!(
+            diagnostic,
+            json!({
+                "stage": "apk_provenance", "check": "signature",
+                "http_status": null, "timeout": false, "connect": false,
+                "request": false, "body": false, "io_kind": null,
+            })
+        );
+        let untyped =
+            failure_diagnostic(&anyhow::anyhow!("apk_provenance signature SENSITIVE_TOKEN"));
+        assert!(untyped["stage"].is_null());
+        assert!(untyped["check"].is_null());
+        assert!(!untyped.to_string().contains("SENSITIVE"));
+    }
 
     #[test]
     fn diagnostics_preserve_status_and_io_kind_without_sensitive_context() {

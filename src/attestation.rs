@@ -1,4 +1,5 @@
 use crate::config::{Repository, TrustRoot, now};
+use crate::diagnostic::AttestationCheck;
 use anyhow::{Result, ensure};
 use serde_json::{Value, json};
 use sigstore_trust_root::TrustedRoot;
@@ -36,23 +37,28 @@ pub fn verify_digest(
     run_id: u64,
     attempt: u64,
 ) -> Result<Value> {
-    ensure!(crate::config::valid_hash(digest), "invalid subject digest");
-    ensure!(trust.valid_until > now()?, "trust material expired");
-    let root_bytes = std::fs::read(&trust.file)?;
-    ensure!(
-        crate::sha256(&root_bytes) == trust.sha256,
-        "trust-root hash differs"
-    );
-    verify_digest_with_root(
-        digest,
-        bundle_json,
-        repo,
-        &root_bytes,
-        trust.valid_until,
-        commit,
-        run_id,
-        attempt,
-    )
+    let mut check = AttestationCheck::SubjectDigest;
+    let result = (|| {
+        ensure!(crate::config::valid_hash(digest), "invalid subject digest");
+        check = AttestationCheck::TrustMaterial;
+        ensure!(trust.valid_until > now()?, "trust material expired");
+        let root_bytes = std::fs::read(&trust.file)?;
+        ensure!(
+            crate::sha256(&root_bytes) == trust.sha256,
+            "trust-root hash differs"
+        );
+        verify_digest_with_root(
+            digest,
+            bundle_json,
+            repo,
+            &root_bytes,
+            trust.valid_until,
+            commit,
+            run_id,
+            attempt,
+        )
+    })();
+    check.attach(result)
 }
 
 #[allow(clippy::too_many_arguments)] // Each claim is independently bound to the approved invocation.
@@ -66,123 +72,144 @@ pub fn verify_digest_with_root(
     run_id: u64,
     attempt: u64,
 ) -> Result<Value> {
-    ensure!(crate::config::valid_hash(digest), "invalid subject digest");
-    ensure!(valid_until > now()?, "trust material expired");
-    let root = TrustedRoot::from_json(std::str::from_utf8(root_bytes)?)?;
-    let bundle = Bundle::from_json(&serde_json::to_string(bundle_json)?)?;
-    let SignatureContent::DsseEnvelope(envelope) = &bundle.content else {
-        anyhow::bail!("GitHub provenance requires DSSE")
-    };
-    let statement: Value = serde_json::from_slice(envelope.payload.as_bytes())?;
-    ensure!(
-        statement["_type"] == "https://in-toto.io/Statement/v1"
-            && statement["predicateType"] == "https://slsa.dev/provenance/v1",
-        "unsupported provenance statement"
-    );
-    ensure!(
-        statement["subject"]
-            .as_array()
-            .is_some_and(|subjects| subjects.iter().any(|s| s["digest"]["sha256"] == digest)),
-        "attestation subject digest differs"
-    );
-    let repository_uri = format!("https://github.com/{}", repo.name);
-    let predicate = &statement["predicate"];
-    ensure!(
-        predicate["buildDefinition"]["buildType"]
-            == "https://actions.github.io/buildtypes/workflow/v1",
-        "unsupported build type"
-    );
-    let workflow = &predicate["buildDefinition"]["externalParameters"]["workflow"];
-    let ref_name = workflow["ref"]
-        .as_str()
-        .ok_or_else(|| anyhow::anyhow!("workflow ref missing"))?;
-    ensure!(repo.allows_ref(ref_name), "build ref is not allowed");
-    let caller = workflow["path"]
-        .as_str()
-        .ok_or_else(|| anyhow::anyhow!("caller path missing"))?;
-    ensure!(
-        workflow["repository"] == repository_uri && repo.allows_caller(caller),
-        "caller workflow differs"
-    );
-    let identity = predicate["runDetails"]["builder"]["id"]
-        .as_str()
-        .ok_or_else(|| anyhow::anyhow!("builder identity missing"))?;
-    let prefix = format!(
-        "https://github.com/{}/{}@",
-        repo.builder.repository, repo.builder.workflow
-    );
-    let builder_ref = identity
-        .strip_prefix(&prefix)
-        .ok_or_else(|| anyhow::anyhow!("builder identity differs"))?;
-    ensure!(
-        repo.builder.allows_ref(builder_ref),
-        "builder ref is not allowed"
-    );
-    let mut policy = VerificationPolicy::new(
-        identity.to_string(),
-        "https://token.actions.githubusercontent.com",
-    );
-    if repo.visibility == "private" {
+    let mut check = AttestationCheck::SubjectDigest;
+    let result = (|| {
+        ensure!(crate::config::valid_hash(digest), "invalid subject digest");
+        check = AttestationCheck::TrustMaterial;
+        ensure!(valid_until > now()?, "trust material expired");
+        let root = TrustedRoot::from_json(std::str::from_utf8(root_bytes)?)?;
+        check = AttestationCheck::BundleFormat;
+        let bundle = Bundle::from_json(&serde_json::to_string(bundle_json)?)?;
+        let SignatureContent::DsseEnvelope(envelope) = &bundle.content else {
+            anyhow::bail!("GitHub provenance requires DSSE")
+        };
+        let statement: Value = serde_json::from_slice(envelope.payload.as_bytes())?;
+        check = AttestationCheck::StatementType;
         ensure!(
-            !bundle
-                .verification_material
-                .timestamp_verification_data
-                .rfc3161_timestamps
-                .is_empty(),
-            "private attestation requires trusted timestamp evidence"
+            statement["_type"] == "https://in-toto.io/Statement/v1"
+                && statement["predicateType"] == "https://slsa.dev/provenance/v1",
+            "unsupported provenance statement"
         );
-        policy = policy.skip_tlog_unsafe().skip_sct();
-    }
-    let result = Verifier::new(&root)?.verify(
-        sigstore_types::Sha256Hash::from_hex(digest)?,
-        &bundle,
-        &policy,
-    )?;
-    ensure!(
-        result.certificate_verified() && !result.verified_timestamps().is_empty(),
-        "attestation lacks verified certificate/time"
-    );
-    let cert = result
-        .certificate()
-        .ok_or_else(|| anyhow::anyhow!("attestation certificate missing"))?;
-    let claims = &cert.ci_claims;
-    let require = |value: &Option<String>, expected: &str| -> Result<()> {
+        check = AttestationCheck::SubjectDigest;
         ensure!(
-            value.as_deref() == Some(expected),
-            "GitHub certificate claim differs or is missing"
+            statement["subject"]
+                .as_array()
+                .is_some_and(|subjects| subjects.iter().any(|s| s["digest"]["sha256"] == digest)),
+            "attestation subject digest differs"
         );
-        Ok(())
-    };
-    require(&claims.source_repository_identifier, &repo.id.to_string())?;
-    require(&claims.source_repository_uri, &repository_uri)?;
-    require(&claims.source_repository_digest, commit)?;
-    require(&claims.source_repository_ref, ref_name)?;
-    let invocation = format!("{repository_uri}/actions/runs/{run_id}/attempts/{attempt}");
-    require(&claims.run_invocation_uri, &invocation)?;
-    let runner = claims
-        .runner_environment
-        .as_deref()
-        .ok_or_else(|| anyhow::anyhow!("runner claim missing"))?;
-    ensure!(
-        repo.runners.iter().any(|r| r == runner),
-        "runner is not eligible"
-    );
-    let trigger = claims
-        .build_trigger
-        .as_deref()
-        .ok_or_else(|| anyhow::anyhow!("event claim missing"))?;
-    ensure!(
-        repo.events.iter().any(|r| r == trigger),
-        "event is not eligible"
-    );
-    require(
-        &claims.source_repository_visibility_at_signing,
-        &repo.visibility,
-    )?;
-    validate_claims(&statement, claims, repo, commit, run_id, attempt)?;
-    Ok(
-        json!({"bundle_sha256":crate::sha256(&serde_json::to_vec(bundle_json)?),"subject_sha256":digest,"caller":caller,"ref":ref_name,"commit":commit,"run":invocation,"runner":runner,"event":trigger,"builder":identity,"builder_commit":repo.builder.commit,"builder_workflow_digest":claims.build_signer_digest,"caller_commit":claims.build_config_digest,"trust_root_sha256":crate::sha256(root_bytes)}),
-    )
+        let repository_uri = format!("https://github.com/{}", repo.name);
+        let predicate = &statement["predicate"];
+        check = AttestationCheck::BuildType;
+        ensure!(
+            predicate["buildDefinition"]["buildType"]
+                == "https://actions.github.io/buildtypes/workflow/v1",
+            "unsupported build type"
+        );
+        let workflow = &predicate["buildDefinition"]["externalParameters"]["workflow"];
+        check = AttestationCheck::SourceRef;
+        let ref_name = workflow["ref"]
+            .as_str()
+            .ok_or_else(|| anyhow::anyhow!("workflow ref missing"))?;
+        ensure!(repo.allows_ref(ref_name), "build ref is not allowed");
+        check = AttestationCheck::CallerWorkflow;
+        let caller = workflow["path"]
+            .as_str()
+            .ok_or_else(|| anyhow::anyhow!("caller path missing"))?;
+        ensure!(
+            workflow["repository"] == repository_uri && repo.allows_caller(caller),
+            "caller workflow differs"
+        );
+        check = AttestationCheck::BuilderIdentity;
+        let identity = predicate["runDetails"]["builder"]["id"]
+            .as_str()
+            .ok_or_else(|| anyhow::anyhow!("builder identity missing"))?;
+        let prefix = format!(
+            "https://github.com/{}/{}@",
+            repo.builder.repository, repo.builder.workflow
+        );
+        let builder_ref = identity
+            .strip_prefix(&prefix)
+            .ok_or_else(|| anyhow::anyhow!("builder identity differs"))?;
+        ensure!(
+            repo.builder.allows_ref(builder_ref),
+            "builder ref is not allowed"
+        );
+        let mut policy = VerificationPolicy::new(
+            identity.to_string(),
+            "https://token.actions.githubusercontent.com",
+        );
+        check = AttestationCheck::TimestampEvidence;
+        if repo.visibility == "private" {
+            ensure!(
+                !bundle
+                    .verification_material
+                    .timestamp_verification_data
+                    .rfc3161_timestamps
+                    .is_empty(),
+                "private attestation requires trusted timestamp evidence"
+            );
+            policy = policy.skip_tlog_unsafe().skip_sct();
+        }
+        check = AttestationCheck::Signature;
+        let result = Verifier::new(&root)?.verify(
+            sigstore_types::Sha256Hash::from_hex(digest)?,
+            &bundle,
+            &policy,
+        )?;
+        check = AttestationCheck::CertificateTime;
+        ensure!(
+            result.certificate_verified() && !result.verified_timestamps().is_empty(),
+            "attestation lacks verified certificate/time"
+        );
+        let cert = result
+            .certificate()
+            .ok_or_else(|| anyhow::anyhow!("attestation certificate missing"))?;
+        let claims = &cert.ci_claims;
+        let require = |value: &Option<String>, expected: &str| -> Result<()> {
+            ensure!(
+                value.as_deref() == Some(expected),
+                "GitHub certificate claim differs or is missing"
+            );
+            Ok(())
+        };
+        check = AttestationCheck::RepositoryClaims;
+        require(&claims.source_repository_identifier, &repo.id.to_string())?;
+        require(&claims.source_repository_uri, &repository_uri)?;
+        require(&claims.source_repository_digest, commit)?;
+        require(&claims.source_repository_ref, ref_name)?;
+        check = AttestationCheck::InvocationClaims;
+        let invocation = format!("{repository_uri}/actions/runs/{run_id}/attempts/{attempt}");
+        require(&claims.run_invocation_uri, &invocation)?;
+        check = AttestationCheck::RunnerClaim;
+        let runner = claims
+            .runner_environment
+            .as_deref()
+            .ok_or_else(|| anyhow::anyhow!("runner claim missing"))?;
+        ensure!(
+            repo.runners.iter().any(|r| r == runner),
+            "runner is not eligible"
+        );
+        check = AttestationCheck::EventClaim;
+        let trigger = claims
+            .build_trigger
+            .as_deref()
+            .ok_or_else(|| anyhow::anyhow!("event claim missing"))?;
+        ensure!(
+            repo.events.iter().any(|r| r == trigger),
+            "event is not eligible"
+        );
+        check = AttestationCheck::VisibilityClaim;
+        require(
+            &claims.source_repository_visibility_at_signing,
+            &repo.visibility,
+        )?;
+        check = AttestationCheck::ProvenanceClaims;
+        validate_claims(&statement, claims, repo, commit, run_id, attempt)?;
+        Ok(
+            json!({"bundle_sha256":crate::sha256(&serde_json::to_vec(bundle_json)?),"subject_sha256":digest,"caller":caller,"ref":ref_name,"commit":commit,"run":invocation,"runner":runner,"event":trigger,"builder":identity,"builder_commit":repo.builder.commit,"builder_workflow_digest":claims.build_signer_digest,"caller_commit":claims.build_config_digest,"trust_root_sha256":crate::sha256(root_bytes)}),
+        )
+    })();
+    check.attach(result)
 }
 
 // Called only after cryptographic verification in verify(). Kept separate so
