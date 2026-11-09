@@ -20,9 +20,16 @@ Metrics:
   first observation; counters reset on restart. Alert rules handle newly appearing
   series as well as increases, so the first failure can alert. `network_retry` counts
   actual additional GET attempts; `job_retry` counts claimed attempts after the first.
-  The generic task alert excludes raw `network_request` failures because expected
-  HTTP misses, such as probing for the next TUF root, are normal. Higher-level
-  operation failures and separate timeout/retry alerts remain monitored.
+  The generic task alert excludes raw request/body/timeout failures and ledger
+  polling failures. Expected HTTP misses and isolated failed polls can recover
+  without intervention. Higher-level signing and trust failures still alert on
+  the first failure. Timeouts notify after more than five in 15 minutes.
+  `AndroidSignerLedgerPollingStalled` detects no increase in successful polls
+  over five minutes, persisting for two minutes. It also detects a worker that
+  has only failed since startup after two minutes. Active signing suppresses
+  this alert because the worker pauses polling while processing a job; existing
+  job-runtime and queue-age alerts cover stalled signing. The rule uses counters
+  to avoid depending on the appliance's wall clock.
 - `bathysign_operation_duration_seconds{operation,outcome}`: histogram with
   1/5/30/60/300/600/1800 second buckets. `job` includes network waits and publishing,
   excluding queue time and durable finalization; failed attempts are included.
@@ -68,3 +75,14 @@ histogram_quantile(0.95, sum by (le) (rate(bathysign_operation_duration_seconds_
 # Network retries and timeouts
 sum by (operation) (increase(bathysign_operations_total{operation=~"network_retry|network_timeout|job_retry"}[1h]))
 ```
+
+Validate the rules and recovery scenarios (requires PyYAML and promtool):
+
+```sh
+python3 tests/monitoring-alerts.py deploy/monitoring/prometheusrule.yaml /tmp/bathysign-alert-tests
+promtool check rules /tmp/bathysign-alert-tests/rules.yaml
+promtool test rules /tmp/bathysign-alert-tests/tests.yaml
+```
+
+The same fixture generator accepts a deployment's transitional PrometheusRule
+and exercises both historical `android_signer_*` and current metric names.
