@@ -2592,7 +2592,7 @@ dependencies = [
 [[package]]
 name = "sigstore-bundle"
 version = "0.15.1"
-source = "git+https://github.com/sigstore/sigstore-rust?rev=8f71a9c397dfea9ebd9dd63bd5bb669767e0b6cd#8f71a9c397dfea9ebd9dd63bd5bb669767e0b6cd"
+source = "git+https://github.com/sigstore/sigstore-rust?rev=f8ce08f520557d93539fddb54c6856f9357e8bb0#f8ce08f520557d93539fddb54c6856f9357e8bb0"
 dependencies = [
  "jiff",
  "sigstore-types",
@@ -2602,7 +2602,7 @@ dependencies = [
 [[package]]
 name = "sigstore-crypto"
 version = "0.15.1"
-source = "git+https://github.com/sigstore/sigstore-rust?rev=8f71a9c397dfea9ebd9dd63bd5bb669767e0b6cd#8f71a9c397dfea9ebd9dd63bd5bb669767e0b6cd"
+source = "git+https://github.com/sigstore/sigstore-rust?rev=f8ce08f520557d93539fddb54c6856f9357e8bb0#f8ce08f520557d93539fddb54c6856f9357e8bb0"
 dependencies = [
  "const-oid 0.9.6",
  "der 0.7.10",
@@ -2618,7 +2618,7 @@ dependencies = [
 [[package]]
 name = "sigstore-merkle"
 version = "0.15.1"
-source = "git+https://github.com/sigstore/sigstore-rust?rev=8f71a9c397dfea9ebd9dd63bd5bb669767e0b6cd#8f71a9c397dfea9ebd9dd63bd5bb669767e0b6cd"
+source = "git+https://github.com/sigstore/sigstore-rust?rev=f8ce08f520557d93539fddb54c6856f9357e8bb0#f8ce08f520557d93539fddb54c6856f9357e8bb0"
 dependencies = [
  "sigstore-crypto",
  "sigstore-types",
@@ -2628,7 +2628,7 @@ dependencies = [
 [[package]]
 name = "sigstore-rekor"
 version = "0.15.1"
-source = "git+https://github.com/sigstore/sigstore-rust?rev=8f71a9c397dfea9ebd9dd63bd5bb669767e0b6cd#8f71a9c397dfea9ebd9dd63bd5bb669767e0b6cd"
+source = "git+https://github.com/sigstore/sigstore-rust?rev=f8ce08f520557d93539fddb54c6856f9357e8bb0#f8ce08f520557d93539fddb54c6856f9357e8bb0"
 dependencies = [
  "base64 0.23.1",
  "hex",
@@ -2643,7 +2643,7 @@ dependencies = [
 [[package]]
 name = "sigstore-trust-root"
 version = "0.15.1"
-source = "git+https://github.com/sigstore/sigstore-rust?rev=8f71a9c397dfea9ebd9dd63bd5bb669767e0b6cd#8f71a9c397dfea9ebd9dd63bd5bb669767e0b6cd"
+source = "git+https://github.com/sigstore/sigstore-rust?rev=f8ce08f520557d93539fddb54c6856f9357e8bb0#f8ce08f520557d93539fddb54c6856f9357e8bb0"
 dependencies = [
  "jiff",
  "serde",
@@ -2656,7 +2656,7 @@ dependencies = [
 [[package]]
 name = "sigstore-tsa"
 version = "0.15.1"
-source = "git+https://github.com/sigstore/sigstore-rust?rev=8f71a9c397dfea9ebd9dd63bd5bb669767e0b6cd#8f71a9c397dfea9ebd9dd63bd5bb669767e0b6cd"
+source = "git+https://github.com/sigstore/sigstore-rust?rev=f8ce08f520557d93539fddb54c6856f9357e8bb0#f8ce08f520557d93539fddb54c6856f9357e8bb0"
 dependencies = [
  "cms",
  "const-oid 0.9.6",
@@ -2675,7 +2675,7 @@ dependencies = [
 [[package]]
 name = "sigstore-tuf"
 version = "0.15.1"
-source = "git+https://github.com/sigstore/sigstore-rust?rev=8f71a9c397dfea9ebd9dd63bd5bb669767e0b6cd#8f71a9c397dfea9ebd9dd63bd5bb669767e0b6cd"
+source = "git+https://github.com/sigstore/sigstore-rust?rev=f8ce08f520557d93539fddb54c6856f9357e8bb0#f8ce08f520557d93539fddb54c6856f9357e8bb0"
 dependencies = [
  "glob",
  "hex",
@@ -2692,7 +2692,7 @@ dependencies = [
 [[package]]
 name = "sigstore-types"
 version = "0.15.1"
-source = "git+https://github.com/sigstore/sigstore-rust?rev=8f71a9c397dfea9ebd9dd63bd5bb669767e0b6cd#8f71a9c397dfea9ebd9dd63bd5bb669767e0b6cd"
+source = "git+https://github.com/sigstore/sigstore-rust?rev=f8ce08f520557d93539fddb54c6856f9357e8bb0#f8ce08f520557d93539fddb54c6856f9357e8bb0"
 dependencies = [
  "base64 0.23.1",
  "hex",
@@ -2706,7 +2706,7 @@ dependencies = [
 [[package]]
 name = "sigstore-verify"
 version = "0.15.1"
-source = "git+https://github.com/sigstore/sigstore-rust?rev=8f71a9c397dfea9ebd9dd63bd5bb669767e0b6cd#8f71a9c397dfea9ebd9dd63bd5bb669767e0b6cd"
+source = "git+https://github.com/sigstore/sigstore-rust?rev=f8ce08f520557d93539fddb54c6856f9357e8bb0#f8ce08f520557d93539fddb54c6856f9357e8bb0"
 dependencies = [
  "base64 0.23.1",
  "const-oid 0.9.6",
