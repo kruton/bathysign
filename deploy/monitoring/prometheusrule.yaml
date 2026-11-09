@@ -7,21 +7,38 @@ spec:
     - name: bathysign
       rules:
         # Expected HTTP misses (including the next TUF root) are not task failures.
-        # Higher-level operations report unrecovered failures; retries/timeouts alert below.
+        # Polling and raw transport errors alert only when sustained or repeated below.
         - alert: AndroidSignerTaskFailures
-          expr: sum by (job, instance, operation) (increase(bathysign_operations_total{outcome="failure",operation!="network_request"}[15m])) > 0 or sum by (job, instance, operation) (bathysign_operations_total{outcome="failure",operation!="network_request"}
-            unless bathysign_operations_total{outcome="failure",operation!="network_request"} offset 15m) > 0
+          expr: sum by (job, instance, operation) (increase(bathysign_operations_total{outcome="failure",operation!~"network_request|network_body|network_timeout|ledger_claim"}[15m])) > 0 or sum by (job, instance, operation) (bathysign_operations_total{outcome="failure",operation!~"network_request|network_body|network_timeout|ledger_claim"}
+            unless bathysign_operations_total{outcome="failure",operation!~"network_request|network_body|network_timeout|ledger_claim"} offset 15m) > 0
           labels:
             severity: warning
           annotations:
             summary: 'Android signer task failures: {{ $labels.operation }}'
-        - alert: AndroidSignerNetworkTimeouts
-          expr: sum by (job, instance) (increase(bathysign_operations_total{operation="network_timeout"}[15m])) > 0 or sum by (job, instance) (bathysign_operations_total{operation="network_timeout"}
-            unless bathysign_operations_total{operation="network_timeout"} offset 15m) > 0
+        # Polling failures recover on the next idle poll. Alert on lost progress,
+        # using counters rather than the appliance clock. Signing pauses polling.
+        - alert: AndroidSignerLedgerPollingStalled
+          expr: |-
+            (
+              sum by (job, instance) ({__name__=~"bathysign_operations_total",operation="ledger_claim"}) > 0
+              unless on (job, instance)
+              sum by (job, instance) (increase({__name__=~"bathysign_operations_total",operation="ledger_claim",outcome="success"}[5m])) > 0
+            )
+            unless on (job, instance)
+            max by (job, instance) ({__name__=~"bathysign_job_active"}) > 0
+          for: 2m
           labels:
             severity: warning
           annotations:
-            summary: Android signer network requests timed out
+            summary: Android signer is not successfully polling for work
+            description: No successful ledger polls in the five-minute window while idle, persisting for two minutes. Check collector connectivity. Brief failures that recover do not notify.
+        - alert: AndroidSignerNetworkTimeouts
+          expr: sum by (job, instance) (increase(bathysign_operations_total{operation="network_timeout"}[15m])) > 5 or sum by (job, instance) (bathysign_operations_total{operation="network_timeout"}
+            unless bathysign_operations_total{operation="network_timeout"} offset 15m) > 5
+          labels:
+            severity: warning
+          annotations:
+            summary: Android signer has repeated network timeouts
         - alert: AndroidSignerRepeatedRetries
           expr: sum by (job, instance) (increase(bathysign_operations_total{operation=~"network_retry|job_retry"}[15m])) > 5 or sum by (job, instance) (bathysign_operations_total{operation=~"network_retry|job_retry"}
             unless bathysign_operations_total{operation=~"network_retry|job_retry"} offset 15m) > 5
