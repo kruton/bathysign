@@ -47,7 +47,7 @@ rand = "0.10"
 # Reqwest 0.13 unconditionally requires a platform TLS verifier absent on Hermit.
 reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls-webpki-roots-no-provider"] }
 rsa = { version = "0.9", features = ["sha2"] }
-rusqlite = { version = "0.41", features = ["bundled"], optional = true }
+rusqlite = { version = "0.42", features = ["bundled"], optional = true }
 rustls = { version = "0.23", default-features = false, features = ["std", "tls12"] }
 rustls-pemfile = "2"
 rustls-rustcrypto = "=0.0.2-alpha"
