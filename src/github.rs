@@ -2,8 +2,8 @@ use crate::config::{Config, Repository, now};
 use crate::network::SendMonitored;
 use anyhow::{Result, ensure};
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
-use rsa::signature::{RandomizedSigner, SignatureEncoding};
 use serde_json::{Value, json};
+use sha2::Sha256;
 
 #[derive(Clone)]
 pub struct Github {
@@ -120,11 +120,10 @@ impl Github {
             &json!({"iat":issued-30,"exp":issued+540,"iss":config.github_app_id}),
         )?);
         let input = format!("{header}.{payload}");
-        let sig = rsa::pkcs1v15::SigningKey::<rsa::sha2::Sha256>::new(key)
-            .try_sign_with_rng(&mut rsa::rand_core::OsRng, input.as_bytes())?;
+        let sig = key.pkcs1v15_sign::<Sha256>(input.as_bytes())?;
         Ok(Self {
             client,
-            token: format!("{input}.{}", URL_SAFE_NO_PAD.encode(sig.to_vec())),
+            token: format!("{input}.{}", URL_SAFE_NO_PAD.encode(sig)),
             max_bytes: config.max_artifact_bytes,
             api_origin: "https://api.github.com".into(),
             uploads_origin: "https://uploads.github.com".into(),

@@ -148,9 +148,9 @@ impl Lineage {
         let spki = cert.tbs_certificate().subject_public_key_info();
         let next_algorithm = match spki.algorithm.oid.to_string().as_str() {
             "1.2.840.113549.1.1.1" => {
-                let key = rsa::RsaPublicKey::from_public_key_der(&spki.to_der()?)?;
+                let key = rsa::PublicKey::from_public_key_der(&spki.to_der()?)?;
                 ensure!(
-                    key.n().bits() >= 2048,
+                    key.n().bit_width() >= 2048,
                     "successor RSA key smaller than 2048 bits"
                 );
                 crate::crypto::RSA_SHA256
