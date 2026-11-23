@@ -28,7 +28,7 @@ class BuildContracts(unittest.TestCase):
         self.target = self.root / 'target'
         self.image = self.target / 'x86_64-unknown-hermit/release/bathysign'
         self.image.parent.mkdir(parents=True)
-        self.image.write_bytes(b'Bathysign: strict entropy profile v1\nSecure entropy unavailable: RDSEED is required')
+        self.image.write_bytes(b'Bathysign: strict entropy profile v1\nRDSEED is required for secure Hermit entropy')
         archive = io.BytesIO()
         with tarfile.open(fileobj=archive, mode='w') as tar:
             data = b'#!/bin/sh\n'
@@ -111,9 +111,18 @@ class KernelPreparationContracts(unittest.TestCase):
             manifest = root / 'checkout/hermit/Cargo.toml'
             pins = {'entropy.rs': hashlib.sha256(b'old implementation').hexdigest()}
             replacements = [{'file': 'entropy.rs', 'before': 'old implementation', 'after': 'strict entropy'}]
+            archive = root / 'kernel-revision.tar.gz'
+            def pack():
+                with tarfile.open(archive, 'w:gz') as tar:
+                    tar.add(source, arcname='kernel')
+                return {'hermit_kernel_revision': 'revision', 'hermit_kernel_url': 'unused',
+                        'hermit_kernel_sha256': hashlib.sha256(archive.read_bytes()).hexdigest()}
+            inputs = pack()
             original_read = Path.read_text
 
             def read(path, *args, **kwargs):
+                if path == ROOT / 'config/toolchain-pins.json':
+                    return json.dumps(inputs)
                 if path == ROOT / 'kernel-patches/upstream-sha256.json':
                     return json.dumps(pins)
                 if path == ROOT / 'kernel-patches/replacements.json':
@@ -132,6 +141,7 @@ class KernelPreparationContracts(unittest.TestCase):
             with self.assertRaisesRegex(SystemExit, 'does not apply exactly'):
                 execute(root / 'bad-count')
             (source / 'entropy.rs').write_text('untrusted source')
+            inputs = pack()
             with self.assertRaisesRegex(SystemExit, 'Upstream kernel differs'):
                 execute(root / 'bad-source')
             self.assertFalse((root / 'bad-source').exists())

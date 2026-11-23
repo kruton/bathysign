@@ -27,7 +27,7 @@ if not (sysroot / "lib/rustlib/x86_64-unknown-hermit/lib").exists():
     install = next(std.glob("*/rust-install.sh"))
     subprocess.run(["bash", str(install), "--prefix=" + str(sysroot.resolve()), "--disable-ldconfig"], check=True)
 if not os.environ.get("BATHYSIGN_OFFLINE_BUILD"):
-    subprocess.run(["rustup", "toolchain", "install", pins["hermit_kernel_toolchain"], "--component", "rust-src", "--component", "llvm-tools"], check=True)
+    subprocess.run(["rustup", "toolchain", "install", pins["hermit_kernel_toolchain"], "--no-self-update", "--component", "rust-src", "--component", "llvm-tools"], check=True)
 kernel=a.cache/"kernel"
 subprocess.run(["python3",str(ROOT/"scripts/prepare-kernel.py"),"--out",str(kernel)],check=True)
 build_env = {**os.environ, "HERMIT_MANIFEST_DIR": str(kernel.resolve())}
@@ -51,7 +51,7 @@ if not target.is_absolute():
     target = ROOT / target
 image=target / "x86_64-unknown-hermit/release/bathysign"
 contents=image.read_bytes()
-if b"Fallback to a naive implementation" in contents or b"Bathysign: strict entropy profile v1" not in contents or b"Secure entropy unavailable: RDSEED is required" not in contents:
+if b"Fallback to a naive implementation" in contents or b"Bathysign: strict entropy profile v1" not in contents or b"RDSEED is required for secure Hermit entropy" not in contents:
     raise SystemExit("Image contains stale/unpatched code; clean the Hermit and bathysign target artifacts and rebuild")
 print("Image:", image)
 print("Loader:", loader)

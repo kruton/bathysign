@@ -81,7 +81,32 @@ fn armed() -> Option<u64> { *arch::TIMER.lock().unwrap() }
     }
 }
 '''
-methods = method('pub fn add(') + '\n#[cfg(feature="net")]\n' + method('pub fn add_network_timer(')
+timer_source = (args.kernel / 'src/scheduler/timer_interrupts.rs').read_text()
+a = timer_source.index('pub fn create_timer_abs(')
+b = timer_source.index('/// Clears', a)
+# Execute the actual upstream timer arbitration against a recorded controller.
+code = code.replace('struct BlockedTaskQueue { list: List, network_wakeup_time: Option<u64> }', 'struct BlockedTaskQueue { list: List }')
+code = code.replace('#[derive(Default)] struct BlockedTaskQueue', r'''#[derive(PartialEq, Eq)] enum Source { Scheduler, Network }
+struct Slot { source: Source, wakeup_time: u64 }
+struct Timers([Slot; 2]);
+impl Timers {
+ fn slot_by_source_mut(&mut self, source: Source) -> &mut Slot { self.0.iter_mut().find(|s| s.source == source).unwrap() }
+ fn next_timer(&self) -> &Slot { self.0.iter().min_by_key(|s| s.wakeup_time).unwrap() }
+}
+struct Scheduler { timers: Timers }
+thread_local! { static SCHEDULER: std::cell::UnsafeCell<Scheduler> = const { std::cell::UnsafeCell::new(Scheduler { timers: Timers([Slot { source: Source::Scheduler, wakeup_time: u64::MAX }, Slot { source: Source::Network, wakeup_time: u64::MAX }]) }) }; }
+fn core_scheduler() -> &'static mut Scheduler { SCHEDULER.with(|s| unsafe { &mut *s.get() }) }
+use arch::set_oneshot_timer;
+__ARBITRATION__
+#[derive(Default)] struct BlockedTaskQueue''')
+code = code.replace('__ARBITRATION__', timer_source[a:b])
+# The network API now belongs to timer_interrupts rather than the task queue.
+code = code.replace('q.add_network_timer(Some(network));', 'create_timer_abs(Source::Network, network);')
+start = code.index('        q.add_network_timer(Some(80_000_000));')
+end = code.index('    }', start)
+code = code[:start] + code[end:]
+code = code.replace('for network in [50_000, 500_000, 50_000_000] {', 'for network in [50_000, 500_000, 50_000_000] {\n        for slot in &mut core_scheduler().timers.0 { slot.wakeup_time = u64::MAX; }')
+methods = method('pub fn add(')
 with tempfile.TemporaryDirectory(prefix='signer-timer-test-') as tmp:
     root = Path(tmp)
     rust = root / 'timers.rs'

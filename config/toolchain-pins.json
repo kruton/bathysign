@@ -1,6 +1,6 @@
 {
   "rust_version": "1.99.0",
-  "hermit_kernel_toolchain": "nightly-2026-02-01",
+  "hermit_kernel_toolchain": "nightly-2026-11-01",
   "hermit_std_url": "https://github.com/hermit-os/rust-std-hermit/releases/download/1.99.0/rust-std-1.99.0-x86_64-unknown-hermit.tar.gz",
   "hermit_std_sha256": "a1fb9387e9cd18fabaa068d3829f3352b906ff592be92a30ec8786da83e0d900",
   "loader_url": "https://github.com/hermit-os/loader/releases/download/v0.5.7/hermit-loader-x86_64-multiboot",
@@ -11,5 +11,8 @@
   "apksig_legacy_sha256": "7ae2e5980c77d853e3513074ee7c822bbdcdcde1668889d17faa7fe8bc8aa821",
   "bundletool_url": "https://github.com/google/bundletool/releases/download/1.18.3/bundletool-all-1.18.3.jar",
   "bundletool_sha256": "a099cfa1543f55593bc2ed16a70a7c67fe54b1747bb7301f37fdfd6d91028e29",
-  "apksig_source_tree_sha256": "05bfbf30d249bb53b9f851afddbcc426389073a21e4c0806e9d790f5737591f3"
+  "apksig_source_tree_sha256": "05bfbf30d249bb53b9f851afddbcc426389073a21e4c0806e9d790f5737591f3",
+  "hermit_kernel_revision": "b87f9336543ac965dd2b2bb7b5951de752aebb9d",
+  "hermit_kernel_url": "https://api.github.com/repos/hermit-os/kernel/tarball/b87f9336543ac965dd2b2bb7b5951de752aebb9d",
+  "hermit_kernel_sha256": "d0b70131d001624aab9dc5d7be397b7e82c0548c32217f34e69733bcbc15ae2a"
 }

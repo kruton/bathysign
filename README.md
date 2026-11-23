@@ -162,9 +162,11 @@ This is a new signing-format implementation. Android reference verification and 
 
 The checked kernel patches halt on entropy failures, bound kernel TCP connects to 15 seconds, prevent nonblocking socket destruction from waiting on a peer, and convert executor Unix-epoch deadlines into the relative futex durations the kernel expects. A companion scheduler patch ignores a second wake notification for a task that its timer already woke, preventing a futex timeout race from panicking. Nonblocking drop aborts the socket; interrupted clients may need to retry. Queue IDs and matching asset checks support safe retry. The vendored hyper-util patch uses a blocking task for Hermit's synchronous connect and registers the successfully connected stream without the unsupported SO_ERROR query. The vendored socket2 fork also returns unrecognized OS errors rather than panicking. These adaptations are specific to the pinned Hermit kernel and should be re-evaluated on upgrades. Keep Tokio 1.45.0, tokio-util 0.7.15 and hyper-util 0.1.14 aligned with the reviewed forks; newer registry versions bypass those patches. Reqwest stays on 0.12 with bundled Mozilla roots because 0.13 requires a platform certificate verifier that cannot compile on Hermit. Kernel preparation validates the resolved networking sources before compiling the guest. Upgrade this stack together with its Hermit adaptations.
 
-The patch set also backports the [TCP_NODELAY correction](https://github.com/hermit-os/kernel/pull/2732) and [Virtqueue memory barriers](https://github.com/hermit-os/kernel/pull/2669). The blocked-task queue preserves the earliest existing, newly added, or network deadline when arming its one-shot timer, addressing the second timer defect in [issue 2639](https://github.com/hermit-os/kernel/issues/2639). This does not establish the cause of intermittent artifact-download stalls or address the separate multicore wakeup report.
-
-Run the scheduler regression against the prepared kernel with `python3 tests/kernel-timers.py --kernel <prepared-kernel-directory>`. It executes the actual queue-insertion methods with a recorded hardware timer, with and without networking. The unchanged code reproduces a 5-second waiter postponing an existing 200 ms deadline; the corrected code preserves the earlier deadline.
+The kernel and Rust wrapper use separate immutable upstream revisions. See
+[kernel compatibility fixes](kernel-patches/README.md) for the remaining local
+patches and upstream fixes. The timer regression executes upstream's queue and
+timer arbitration with a recorded hardware timer:
+`python3 tests/kernel-timers.py --kernel <prepared-kernel-directory>`.
 
 ## SLSA release integration
 

@@ -1,11 +1,20 @@
-# Checked Hermit 0.13.2 compatibility fixes
+# Checked pinned-main Hermit compatibility fixes
 
-The pinned `hermit-0.13.2` release uses kernel
-`f51061476ecaa2066779c473a683d8b35b315d9b`. All compatibility patches still
-apply to this release; none are superseded by its upstream changes. The kernel
-toolchain remains `nightly-2026-02-01`.
+The kernel is pinned independently to `b87f9336543ac965dd2b2bb7b5951de752aebb9d`
+(November 2, 2026), with `hermit-rs` pinned to
+`2545b3dae3deb0ce70d12836ed432b26e573dcd4`. Its older kernel submodule is
+not used. The compiler is `nightly-2026-11-01`; the application and Hermit
+standard library remain on Rust 1.99.0. The wrapper explicitly enables the
+`loader` feature because upstream no longer includes a boot entry point without it. The source archive revision, URL and
+SHA-256 are recorded in `config/toolchain-pins.json` and cached for offline builds.
 
-The build helper copies the kernel from the exact Hermit dependency in Cargo.lock.
+Upstream now supplies Ethernet frame sizing, TCP_NODELAY, VirtIO queue barriers,
+PCI interrupt polarity/trigger configuration, earliest-deadline timer arbitration,
+and TCP CLOSE-WAIT writes. Those backports have been removed. The reserved PCI
+IRQ range correction remains local. The regression harnesses test upstream frame sizing (`tests/kernel-mtu.py`), timer
+and PCI implementations together with the remaining patches.
+
+The build helper verifies and extracts the independently pinned kernel archive.
 It checks upstream file hashes before applying replacements; it does not edit the
 Cargo checkout. `upstream-sha256.json` and `replacements.json` are the patch inputs.
 The guest build refuses an unpatched entropy implementation, and the build helper
@@ -33,10 +42,6 @@ the old fallback warning.
 - Scheduler wake: ignore a second wake notification for a task already made ready
   by its timer. The futex registration may remain briefly after timer expiry;
   the original assumed the task still appeared in the blocked queue and panicked.
-- VirtIO network MTU: add the Ethernet header to receive/transmit buffer sizes
-  and smoltcp's Ethernet frame limit. VirtIO advertises the IP MTU; smoltcp's
-  Ethernet device limit includes the 14-byte link header. The original dropped
-  packets above 8986 bytes with an advertised IP MTU of 9000.
 - DNS: preserve a usable address family when the other family has no record.
   Upstream returned immediately after an unsuccessful AAAA lookup, so IPv4-only
   names never reached their A lookup. The live VM's DNS packet capture confirmed
@@ -48,14 +53,9 @@ the old fallback warning.
   notify blocked writers when a read frees counter capacity. Run
   `python3 tests/kernel-eventfd.py --kernel <prepared-kernel>` for the native
   regression tests against the actual prepared kernel module.
-- PCI interrupts: backport upstream [#2611](https://github.com/hermit-os/kernel/pull/2611)
-  to configure legacy PCI IRQs as level triggered and active low when discovering
-  their interrupt lines. The default ISA edge/high configuration can lose PCI
-  notifications, particularly when devices share an IRQ. The test VM's network
-  and virtiofs devices share IRQ 10. Keep its IP MTU at 9000; changing MTU did not
-  eliminate the observed stalls. Run `python3 tests/kernel-pci-interrupts.py
-  --kernel <prepared-kernel>` to check actual register programming and PCI IRQ
-  discovery against a simulated interrupt controller.
+- PCI reserved IRQs: reject the entire reserved range, including IRQ 254,
+  before upstream's IOAPIC programming. Run `python3 tests/kernel-pci-interrupts.py
+  --kernel <prepared-kernel>`.
 - Vectored I/O: preserve bytes already transferred when a subsequent buffer in
   `readv` or `writev` fails. Returning `EAGAIN` after a successful earlier buffer
   makes callers retry bytes already sent, which can corrupt a TLS stream. The
@@ -64,8 +64,20 @@ the old fallback warning.
   interruption, and I/O errors: `python3 tests/kernel-vectored-io.py --kernel
   <prepared-kernel>`.
 
-These fixes were exercised with a real Hermit 0.13.2 guest under QEMU TCG, including an
+These fixes were exercised with a real Hermit guest under QEMU TCG, including an
 external collector outage without extra traffic to wake the guest. The negative
 boot test without RDSEED halts before loading signing keys. Re-evaluate these
 patches against upstream when upgrading the kernel; changed upstream files fail
 the hash check deliberately.
+
+Validation of the pinned-main kernel includes native MTU/frame-size and TCP
+CLOSE-WAIT write harnesses (`tests/kernel-mtu.py`, `tests/kernel-half-close.py`).
+The QEMU smoke test covers read-only secrets, TLS, collector policy activation,
+authenticated webhooks, collector outage, and idle close. Booting without RDSEED
+halts in the strict kernel entropy path before configuration or signing keys load.
+
+Two builds with separate target directories, identical source revision and
+`SOURCE_DATE_EPOCH=1793721600` produced the same guest SHA-256:
+`48bb20cc7226ccce7aac616070bd0b2aa3b1dd6c397d6da4b0220fdca1613858`.
+They shared downloaded compiler/dependency caches; full network-isolated rebuild
+validation requires a host permitting network namespaces or the release container.
