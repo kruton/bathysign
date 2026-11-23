@@ -317,7 +317,7 @@ fn main() -> Result<()> {
                 anyhow::bail!("hybrid classical key must be RSA")
             };
             ensure!(
-                k.n().bits() == 4096 && pqc.algorithm() == bathysign::crypto::ML_DSA,
+                k.n().bit_width() == 4096 && pqc.algorithm() == bathysign::crypto::ML_DSA,
                 "hybrid requires RSA-4096 and ML-DSA-65"
             );
             ensure!(

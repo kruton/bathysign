@@ -546,7 +546,7 @@ impl Loaded {
                     };
                     use rsa::traits::PublicKeyParts;
                     ensure!(
-                        rsa.n().bits() == 4096 && p.algorithm() == crate::crypto::ML_DSA,
+                        rsa.n().bit_width() == 4096 && p.algorithm() == crate::crypto::ML_DSA,
                         "hybrid requires RSA-4096 and ML-DSA-65"
                     );
                     let cl = read_lineage(
@@ -856,7 +856,7 @@ mod tests {
         );
         let make_key = |bits, label| SigningKey {
             private: PrivateKey::Rsa(Box::new(
-                rsa::RsaPrivateKey::new(&mut rsa::rand_core::OsRng, bits).unwrap(),
+                rsa::PrivateKey::new(&mut rand::rngs::SysRng, bits).unwrap(),
             )),
             certificate: vec![label],
         };

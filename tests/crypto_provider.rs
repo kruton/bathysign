@@ -67,30 +67,22 @@ fn ecdsa_signatures_accept_both_supported_hashes_and_reject_tampering() {
 }
 
 #[test]
-fn rsa_signatures_bridge_digest_versions_and_reject_tampering() {
-    use rsa::{
-        pkcs1::EncodeRsaPublicKey,
-        signature::{RandomizedSigner, SignatureEncoding},
-    };
+fn rsa_signatures_verify_and_reject_tampering() {
+    use rsa::pkcs1::EncodeRsaPublicKey;
 
-    let mut rng = rsa::rand_core::OsRng;
-    let key = rsa::RsaPrivateKey::new(&mut rng, 2048).unwrap();
+    let mut rng = rand::rngs::SysRng;
+    let key = rsa::PrivateKey::new(&mut rng, 2048).unwrap();
     let public = key.to_public_key().to_pkcs1_der().unwrap();
     macro_rules! check {
-        ($padding:ident, $hash:ident, $scheme:ident) => {
-            let signer = rsa::$padding::SigningKey::<rsa::sha2::$hash>::new(key.clone());
-            let signature = signer.try_sign_with_rng(&mut rng, MESSAGE).unwrap();
-            verify_signature(
-                SigningScheme::$scheme,
-                public.as_bytes(),
-                &signature.to_vec(),
-            );
+        ($sign:ident, $hash:ident, $scheme:ident) => {
+            let signature = key.$sign::<sha2::$hash>(MESSAGE).unwrap();
+            verify_signature(SigningScheme::$scheme, public.as_bytes(), &signature);
         };
     }
-    check!(pkcs1v15, Sha256, RsaPkcs1Sha256);
-    check!(pkcs1v15, Sha384, RsaPkcs1Sha384);
-    check!(pkcs1v15, Sha512, RsaPkcs1Sha512);
-    check!(pss, Sha256, RsaPssSha256);
-    check!(pss, Sha384, RsaPssSha384);
-    check!(pss, Sha512, RsaPssSha512);
+    check!(pkcs1v15_sign, Sha256, RsaPkcs1Sha256);
+    check!(pkcs1v15_sign, Sha384, RsaPkcs1Sha384);
+    check!(pkcs1v15_sign, Sha512, RsaPkcs1Sha512);
+    check!(pss_sign, Sha256, RsaPssSha256);
+    check!(pss_sign, Sha384, RsaPssSha384);
+    check!(pss_sign, Sha512, RsaPssSha512);
 }

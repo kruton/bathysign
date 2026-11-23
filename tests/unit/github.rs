@@ -584,9 +584,8 @@ async fn embedded_bundles_require_repository_identity_and_valid_bundle_shape() {
 #[tokio::test]
 async fn app_jwt_is_signed_with_the_configured_identity_and_short_expiry() {
     use rsa::pkcs8::EncodePrivateKey;
-    use rsa::signature::Verifier;
     crate::initialize_test_crypto();
-    let key = rsa::RsaPrivateKey::new(&mut rsa::rand_core::OsRng, 2048).unwrap();
+    let key = rsa::PrivateKey::new(&mut rand::rngs::SysRng, 2048).unwrap();
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("app.pem");
     std::fs::write(
@@ -615,11 +614,12 @@ async fn app_jwt_is_signed_with_the_configured_identity_and_short_expiry() {
     let issued = payload["iat"].as_u64().unwrap();
     assert!((before - 30..=now().unwrap() - 30).contains(&issued));
     assert_eq!(payload["exp"].as_u64().unwrap() - issued, 570);
-    let signature =
-        rsa::pkcs1v15::Signature::try_from(URL_SAFE_NO_PAD.decode(parts[2]).unwrap().as_slice())
-            .unwrap();
-    rsa::pkcs1v15::VerifyingKey::<rsa::sha2::Sha256>::new(key.to_public_key())
-        .verify(format!("{}.{}", parts[0], parts[1]).as_bytes(), &signature)
+    let signature = URL_SAFE_NO_PAD.decode(parts[2]).unwrap();
+    key.to_public_key()
+        .pkcs1v15_verify::<sha2::Sha256>(
+            format!("{}.{}", parts[0], parts[1]).as_bytes(),
+            &signature,
+        )
         .unwrap();
     std::fs::write(&config.github_app_private_key, b"not a key").unwrap();
     assert!(Github::connect(&config).await.is_err());
