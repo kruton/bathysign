@@ -37,7 +37,6 @@ mod fd {
             const POLLOUT = 8; const POLLWRNORM = 16; const POLLWRBAND = 32;
         }
     }
-    #[async_trait::async_trait]
     pub trait ObjectInterface: Send + Sync {
         async fn read(&self, buf: &mut [u8]) -> crate::io::Result<usize>;
         async fn write(&self, buf: &[u8]) -> crate::io::Result<usize>;
@@ -63,13 +62,13 @@ mod tests {
             // Match poll_fds: an unrelated descriptor becomes ready, dropping
             // this pending future. Its registration must not steal a wake.
             for _ in 0..16 {
-                let mut cancelled = fd.poll(PollEvent::POLLIN);
+                let mut cancelled = Box::pin(fd.poll(PollEvent::POLLIN));
                 assert!(cancelled.as_mut().poll(&mut Context::from_waker(&old)).is_pending());
             }
             let live = Arc::new(Notifications::default());
             let waker = Waker::from(live.clone());
             let mut cx = Context::from_waker(&waker);
-            let mut current = fd.poll(PollEvent::POLLIN);
+            let mut current = Box::pin(fd.poll(PollEvent::POLLIN));
             assert!(current.as_mut().poll(&mut cx).is_pending());
             let bytes = 1_u64.to_ne_bytes();
             assert!(pin!(fd.write(&bytes)).poll(&mut cx).is_ready());
@@ -86,7 +85,7 @@ mod tests {
         let full = (u64::MAX - 1).to_ne_bytes();
         assert!(pin!(fd.write(&full)).poll(&mut cx).is_ready());
         let one = 1_u64.to_ne_bytes();
-        let mut writer = fd.write(&one);
+        let mut writer = Box::pin(fd.write(&one));
         assert!(writer.as_mut().poll(&mut cx).is_pending());
         let mut buffer = [0; 8];
         assert!(pin!(fd.read(&mut buffer)).poll(&mut cx).is_ready());

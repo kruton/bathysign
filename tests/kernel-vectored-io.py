@@ -24,7 +24,11 @@ def function(name):
 
 code = r'''
 #![allow(non_camel_case_types, dead_code)]
-use std::{collections::VecDeque, slice, sync::Mutex};
+use std::{collections::VecDeque, slice, sync::Mutex, mem::MaybeUninit};
+mod init_buf { use std::mem::MaybeUninit; pub fn init_buf(buf: &mut [MaybeUninit<u8>]) -> &mut [u8] {
+    for byte in buf.iter_mut() { byte.write(0); }
+    unsafe { std::slice::from_raw_parts_mut(buf.as_mut_ptr().cast(), buf.len()) }
+} }
 type RawFd = i32;
 const IOV_MAX: usize = 1024;
 #[derive(Clone, Copy, Debug)] enum Errno { Again, Intr, Io, Inval }

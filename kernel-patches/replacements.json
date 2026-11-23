@@ -1,8 +1,8 @@
 [
   {
     "file": "src/syscalls/entropy.rs",
-    "before": "\tlet ret = entropy::read(buf, flags);\n\tif ret < 0 {\n\t\twarn!(\"Unable to read entropy! Fallback to a naive implementation!\");\n\t\tfor byte in &mut *buf {\n\t\t\t*byte = (generate_park_miller_lehmer_random_number() & 0xff)\n\t\t\t\t.try_into()\n\t\t\t\t.unwrap();\n\t\t}\n\t\tbuf.len().try_into().unwrap()\n\t} else {\n\t\tret\n\t}",
-    "after": "\t// BATHYSIGN_STRICT_ENTROPY: fail stop, never use rand().\n\tlet result = entropy::read(buf, flags);\n\tassert!(result >= 0, \"Secure entropy unavailable: RDSEED is required\");\n\tresult"
+    "before": "\tentropy::read(buf, flags)\n\t\t.unwrap_or_else(|_| {\n\t\t\twarn!(\"Unable to read entropy! Fallback to a naive implementation!\");\n\t\t\tfor byte in &mut *buf {\n\t\t\t\t*byte = (generate_park_miller_lehmer_random_number() & 0xff)\n\t\t\t\t\t.try_into()\n\t\t\t\t\t.unwrap();\n\t\t\t}\n\t\t\tbuf.len()\n\t\t})\n\t\t.try_into()\n\t\t.unwrap()",
+    "after": "\t// BATHYSIGN_STRICT_ENTROPY\n\tmatch entropy::read(buf, flags) {\n\t\tOk(len) => len.try_into().unwrap(),\n\t\tErr(_) => panic!(\"Bathysign: strict entropy profile v1: secure entropy unavailable\"),\n\t}"
   },
   {
     "file": "src/fd/socket/tcp.rs",
@@ -46,21 +46,6 @@
     "after": "\t\t\t\tif let Some(task) = self.blocked_tasks.custom_wakeup(task) {\n\t\t\t\t\tself.ready_queue.push(task);\n\t\t\t\t}"
   },
   {
-    "file": "src/drivers/net/virtio/mod.rs",
-    "before": "let mut min_buf_size = determine_mtu(dev_cfg).into();",
-    "after": "// VirtIO reports IP MTU; the receive payload includes the Ethernet header.\n\tlet mut min_buf_size = u32::from(determine_mtu(dev_cfg)) + ETHERNET_HEADER_LEN as u32;"
-  },
-  {
-    "file": "src/drivers/net/virtio/mod.rs",
-    "before": "buf_size: determine_mtu(dev_cfg).into(),",
-    "after": "buf_size: u32::from(determine_mtu(dev_cfg)) + ETHERNET_HEADER_LEN as u32,"
-  },
-  {
-    "file": "src/drivers/net/virtio/mod.rs",
-    "before": "device_capabilities.max_transmission_unit = self.inner.mtu.into();",
-    "after": "// smoltcp Ethernet capabilities include the link header, unlike VirtIO MTU.\n\t\tdevice_capabilities.max_transmission_unit = usize::from(self.inner.mtu) + ETHERNET_HEADER_LEN;"
-  },
-  {
     "file": "src/syscalls/socket/addrinfo.rs",
     "before": "let ipv6_results = try_io!(ipv6_results.transpose()).unwrap_or_default();",
     "after": "// An absent AAAA record must not prevent an IPv4 or mapped fallback.\n\tlet ipv6_results = if want_ipv4 || ai_flags.contains(Ai::V4MAPPED) {\n\t\tipv6_results.transpose().unwrap_or_default().unwrap_or_default()\n\t} else {\n\t\ttry_io!(ipv6_results.transpose()).unwrap_or_default()\n\t};"
@@ -72,121 +57,8 @@
   },
   {
     "file": "src/fd/eventfd.rs",
-    "before": "use alloc::boxed::Box;\nuse alloc::collections::vec_deque::VecDeque;\nuse core::future::{self, Future};\nuse core::mem;\nuse core::pin::pin;\nuse core::task::{Poll, Waker, ready};\n\nuse async_lock::Mutex;\nuse async_trait::async_trait;\n\nuse crate::errno::Errno;\nuse crate::fd::{EventFlags, ObjectInterface, PollEvent};\nuse crate::io;\n\n#[derive(Debug)]\nstruct EventState {\n\tpub counter: u64,\n\tpub read_queue: VecDeque<Waker>,\n\tpub write_queue: VecDeque<Waker>,\n}\n\nimpl EventState {\n\tpub fn new(counter: u64) -> Self {\n\t\tSelf {\n\t\t\tcounter,\n\t\t\tread_queue: VecDeque::new(),\n\t\t\twrite_queue: VecDeque::new(),\n\t\t}\n\t}\n}\n\npub(crate) struct EventFd {\n\tstate: Mutex<EventState>,\n\tflags: EventFlags,\n}\n\nimpl EventFd {\n\tpub fn new(initval: u64, flags: EventFlags) -> Self {\n\t\tdebug!(\"Create EventFd {initval}, {flags:?}\");\n\t\tSelf {\n\t\t\tstate: Mutex::new(EventState::new(initval)),\n\t\t\tflags,\n\t\t}\n\t}\n}\n\n#[async_trait]\nimpl ObjectInterface for EventFd {\n\tasync fn read(&self, buf: &mut [u8]) -> io::Result<usize> {\n\t\tlet len = mem::size_of::<u64>();\n\n\t\tif buf.len() < len {\n\t\t\treturn Err(Errno::Inval);\n\t\t}\n\n\t\tfuture::poll_fn(|cx| {\n\t\t\tif self.flags.contains(EventFlags::EFD_SEMAPHORE) {\n\t\t\t\tlet mut pinned = pin!(self.state.lock());\n\t\t\t\tlet mut guard = ready!(pinned.as_mut().poll(cx));\n\t\t\t\tif guard.counter > 0 {\n\t\t\t\t\tguard.counter -= 1;\n\t\t\t\t\tbuf[..len].copy_from_slice(&u64::to_ne_bytes(1));\n\t\t\t\t\tif let Some(cx) = guard.write_queue.pop_front() {\n\t\t\t\t\t\tcx.wake_by_ref();\n\t\t\t\t\t}\n\t\t\t\t\tPoll::Ready(Ok(len))\n\t\t\t\t} else {\n\t\t\t\t\tguard.read_queue.push_back(cx.waker().clone());\n\t\t\t\t\tPoll::Pending\n\t\t\t\t}\n\t\t\t} else {\n\t\t\t\tlet mut pinned = pin!(self.state.lock());\n\t\t\t\tlet mut guard = ready!(pinned.as_mut().poll(cx));\n\t\t\t\tlet tmp = guard.counter;\n\t\t\t\tif tmp > 0 {\n\t\t\t\t\tguard.counter = 0;\n\t\t\t\t\tbuf[..len].copy_from_slice(&u64::to_ne_bytes(tmp));\n\t\t\t\t\tif let Some(cx) = guard.read_queue.pop_front() {\n\t\t\t\t\t\tcx.wake_by_ref();\n\t\t\t\t\t}\n\t\t\t\t\tPoll::Ready(Ok(len))\n\t\t\t\t} else if self.flags.contains(EventFlags::EFD_NONBLOCK) {\n\t\t\t\t\tPoll::Ready(Err(Errno::Again))\n\t\t\t\t} else {\n\t\t\t\t\tguard.read_queue.push_back(cx.waker().clone());\n\t\t\t\t\tPoll::Pending\n\t\t\t\t}\n\t\t\t}\n\t\t})\n\t\t.await\n\t}\n\n\tasync fn write(&self, buf: &[u8]) -> io::Result<usize> {\n\t\tlet len = mem::size_of::<u64>();\n\n\t\tif buf.len() < len {\n\t\t\treturn Err(Errno::Inval);\n\t\t}\n\n\t\tlet c = u64::from_ne_bytes(buf[..len].try_into().unwrap());\n\n\t\tfuture::poll_fn(|cx| {\n\t\t\tlet mut pinned = pin!(self.state.lock());\n\t\t\tlet mut guard = ready!(pinned.as_mut().poll(cx));\n\t\t\tif u64::MAX - guard.counter > c {\n\t\t\t\tguard.counter += c;\n\t\t\t\tif self.flags.contains(EventFlags::EFD_SEMAPHORE) {\n\t\t\t\t\tfor _i in 0..c {\n\t\t\t\t\t\tlet Some(cx) = guard.read_queue.pop_front() else {\n\t\t\t\t\t\t\tbreak;\n\t\t\t\t\t\t};\n\n\t\t\t\t\t\tcx.wake_by_ref();\n\t\t\t\t\t}\n\t\t\t\t} else if let Some(cx) = guard.read_queue.pop_front() {\n\t\t\t\t\tcx.wake_by_ref();\n\t\t\t\t}\n\n\t\t\t\tPoll::Ready(Ok(len))\n\t\t\t} else if self.flags.contains(EventFlags::EFD_NONBLOCK) {\n\t\t\t\tPoll::Ready(Err(Errno::Again))\n\t\t\t} else {\n\t\t\t\tguard.write_queue.push_back(cx.waker().clone());\n\t\t\t\tPoll::Pending\n\t\t\t}\n\t\t})\n\t\t.await\n\t}\n\n\tasync fn poll(&self, event: PollEvent) -> io::Result<PollEvent> {\n\t\tlet guard = self.state.lock().await;\n\n\t\tlet mut available = PollEvent::empty();\n\n\t\tif guard.counter < u64::MAX - 1 {\n\t\t\tavailable.insert(PollEvent::POLLOUT | PollEvent::POLLWRNORM | PollEvent::POLLWRBAND);\n\t\t}\n\n\t\tif guard.counter > 0 {\n\t\t\tavailable.insert(PollEvent::POLLIN | PollEvent::POLLRDNORM | PollEvent::POLLRDBAND);\n\t\t}\n\n\t\tdrop(guard);\n\n\t\tlet ret = event & available;\n\n\t\tfuture::poll_fn(|cx| {\n\t\t\tif ret.is_empty() {\n\t\t\t\tlet mut pinned = pin!(self.state.lock());\n\t\t\t\tlet mut guard = ready!(pinned.as_mut().poll(cx));\n\t\t\t\tif event\n\t\t\t\t\t.intersects(PollEvent::POLLIN | PollEvent::POLLRDNORM | PollEvent::POLLRDNORM)\n\t\t\t\t{\n\t\t\t\t\tguard.read_queue.push_back(cx.waker().clone());\n\t\t\t\t\tPoll::Pending\n\t\t\t\t} else if event\n\t\t\t\t\t.intersects(PollEvent::POLLOUT | PollEvent::POLLWRNORM | PollEvent::POLLWRBAND)\n\t\t\t\t{\n\t\t\t\t\tguard.write_queue.push_back(cx.waker().clone());\n\t\t\t\t\tPoll::Pending\n\t\t\t\t} else {\n\t\t\t\t\tPoll::Ready(Ok(ret))\n\t\t\t\t}\n\t\t\t} else {\n\t\t\t\tPoll::Ready(Ok(ret))\n\t\t\t}\n\t\t})\n\t\t.await\n\t}\n}\n",
-    "after": "use alloc::boxed::Box;\nuse alloc::collections::vec_deque::VecDeque;\nuse core::future::{self, Future};\nuse core::mem;\nuse core::pin::pin;\nuse core::task::{Poll, Waker, ready};\n\nuse async_lock::Mutex;\nuse async_trait::async_trait;\n\nuse crate::errno::Errno;\nuse crate::fd::{EventFlags, ObjectInterface, PollEvent};\nuse crate::io;\n\n#[derive(Debug)]\nstruct EventState {\n\tpub counter: u64,\n\tpub read_queue: VecDeque<Waker>,\n\tpub write_queue: VecDeque<Waker>,\n}\n\nimpl EventState {\n\tpub fn new(counter: u64) -> Self {\n\t\tSelf {\n\t\t\tcounter,\n\t\t\tread_queue: VecDeque::new(),\n\t\t\twrite_queue: VecDeque::new(),\n\t\t}\n\t}\n}\n\npub(crate) struct EventFd {\n\tstate: Mutex<EventState>,\n\tflags: EventFlags,\n}\n\nimpl EventFd {\n\tpub fn new(initval: u64, flags: EventFlags) -> Self {\n\t\tdebug!(\"Create EventFd {initval}, {flags:?}\");\n\t\tSelf {\n\t\t\tstate: Mutex::new(EventState::new(initval)),\n\t\t\tflags,\n\t\t}\n\t}\n}\n\n#[async_trait]\nimpl ObjectInterface for EventFd {\n\tasync fn read(&self, buf: &mut [u8]) -> io::Result<usize> {\n\t\tlet len = mem::size_of::<u64>();\n\n\t\tif buf.len() < len {\n\t\t\treturn Err(Errno::Inval);\n\t\t}\n\n\t\tfuture::poll_fn(|cx| {\n\t\t\tif self.flags.contains(EventFlags::EFD_SEMAPHORE) {\n\t\t\t\tlet mut pinned = pin!(self.state.lock());\n\t\t\t\tlet mut guard = ready!(pinned.as_mut().poll(cx));\n\t\t\t\tif guard.counter > 0 {\n\t\t\t\t\tguard.counter -= 1;\n\t\t\t\t\tbuf[..len].copy_from_slice(&u64::to_ne_bytes(1));\n\t\t\t\t\twhile let Some(waker) = guard.write_queue.pop_front() {\n\t\t\t\t\t\twaker.wake();\n\t\t\t\t\t}\n\t\t\t\t\tPoll::Ready(Ok(len))\n\t\t\t\t} else {\n\t\t\t\t\tguard.read_queue.push_back(cx.waker().clone());\n\t\t\t\t\tPoll::Pending\n\t\t\t\t}\n\t\t\t} else {\n\t\t\t\tlet mut pinned = pin!(self.state.lock());\n\t\t\t\tlet mut guard = ready!(pinned.as_mut().poll(cx));\n\t\t\t\tlet tmp = guard.counter;\n\t\t\t\tif tmp > 0 {\n\t\t\t\t\tguard.counter = 0;\n\t\t\t\t\tbuf[..len].copy_from_slice(&u64::to_ne_bytes(tmp));\n\t\t\t\t\twhile let Some(waker) = guard.write_queue.pop_front() {\n\t\t\t\t\t\twaker.wake();\n\t\t\t\t\t}\n\t\t\t\t\tPoll::Ready(Ok(len))\n\t\t\t\t} else if self.flags.contains(EventFlags::EFD_NONBLOCK) {\n\t\t\t\t\tPoll::Ready(Err(Errno::Again))\n\t\t\t\t} else {\n\t\t\t\t\tguard.read_queue.push_back(cx.waker().clone());\n\t\t\t\t\tPoll::Pending\n\t\t\t\t}\n\t\t\t}\n\t\t})\n\t\t.await\n\t}\n\n\tasync fn write(&self, buf: &[u8]) -> io::Result<usize> {\n\t\tlet len = mem::size_of::<u64>();\n\n\t\tif buf.len() < len {\n\t\t\treturn Err(Errno::Inval);\n\t\t}\n\n\t\tlet c = u64::from_ne_bytes(buf[..len].try_into().unwrap());\n\n\t\tfuture::poll_fn(|cx| {\n\t\t\tlet mut pinned = pin!(self.state.lock());\n\t\t\tlet mut guard = ready!(pinned.as_mut().poll(cx));\n\t\t\tif u64::MAX - guard.counter > c {\n\t\t\t\tguard.counter += c;\n\t\t\t\t// poll_fds drops temporary poll futures, leaving cancelled waiters.\n\t\t\t\t// Notify every waiter; each must recheck the counter under the lock.\n\t\t\t\twhile let Some(waker) = guard.read_queue.pop_front() {\n\t\t\t\t\twaker.wake();\n\t\t\t\t}\n\n\t\t\t\tPoll::Ready(Ok(len))\n\t\t\t} else if self.flags.contains(EventFlags::EFD_NONBLOCK) {\n\t\t\t\tPoll::Ready(Err(Errno::Again))\n\t\t\t} else {\n\t\t\t\tguard.write_queue.push_back(cx.waker().clone());\n\t\t\t\tPoll::Pending\n\t\t\t}\n\t\t})\n\t\t.await\n\t}\n\n\tasync fn poll(&self, event: PollEvent) -> io::Result<PollEvent> {\n\t\tfuture::poll_fn(|cx| {\n\t\t\tlet mut pinned = pin!(self.state.lock());\n\t\t\tlet mut guard = ready!(pinned.as_mut().poll(cx));\n\t\t\tlet mut available = PollEvent::empty();\n\t\t\tif guard.counter < u64::MAX - 1 {\n\t\t\t\tavailable.insert(PollEvent::POLLOUT | PollEvent::POLLWRNORM | PollEvent::POLLWRBAND);\n\t\t\t}\n\t\t\tif guard.counter > 0 {\n\t\t\t\tavailable.insert(PollEvent::POLLIN | PollEvent::POLLRDNORM | PollEvent::POLLRDBAND);\n\t\t\t}\n\t\t\tlet ret = event & available;\n\t\t\tif !ret.is_empty() {\n\t\t\t\treturn Poll::Ready(Ok(ret));\n\t\t\t}\n\t\t\t// Check readiness and register under the same lock to avoid lost wakes.\n\t\t\tlet mut waiting = false;\n\t\t\tif event.intersects(PollEvent::POLLIN | PollEvent::POLLRDNORM | PollEvent::POLLRDBAND) {\n\t\t\t\tif !guard.read_queue.iter().any(|waker| waker.will_wake(cx.waker())) {\n\t\t\t\t\tguard.read_queue.push_back(cx.waker().clone());\n\t\t\t\t}\n\t\t\t\twaiting = true;\n\t\t\t}\n\t\t\tif event.intersects(PollEvent::POLLOUT | PollEvent::POLLWRNORM | PollEvent::POLLWRBAND) {\n\t\t\t\tif !guard.write_queue.iter().any(|waker| waker.will_wake(cx.waker())) {\n\t\t\t\t\tguard.write_queue.push_back(cx.waker().clone());\n\t\t\t\t}\n\t\t\t\twaiting = true;\n\t\t\t}\n\t\t\tif waiting { Poll::Pending } else { Poll::Ready(Ok(ret)) }\n\t\t})\n\t\t.await\n\t}\n}\n"
-  },
-  {
-    "file": "src/drivers/net/virtio/mod.rs",
-    "before": "\t\t// Otherwise, we can just use the MTU we want to use\n\t\tmtu()",
-    "after": "\t\t// The generic helper returns an Ethernet frame limit; expose IP MTU here.\n\t\tmtu().checked_sub(ETHERNET_HEADER_LEN as u16).expect(\"Ethernet MTU too small\")"
-  },
-  {
-    "file": "src/fd/socket/tcp.rs",
-    "before": "socket.set_nagle_enabled(optval);",
-    "after": "// TCP_NODELAY has the opposite meaning to Nagle enablement.\n\t\t\t\tsocket.set_nagle_enabled(!optval);",
-    "upstream": "https://github.com/hermit-os/kernel/pull/2732"
-  },
-  {
-    "file": "src/fd/socket/tcp.rs",
-    "before": "Ok(socket.nagle_enabled())",
-    "after": "Ok(!socket.nagle_enabled())",
-    "upstream": "https://github.com/hermit-os/kernel/pull/2732"
-  },
-  {
-    "file": "src/drivers/virtio/virtqueue/split.rs",
-    "before": "fn dev_is_notif(&self) -> bool {\n\t\t!self.used_ring()",
-    "after": "fn dev_is_notif(&self) -> bool {\n\t\t// Publish descriptors before checking device notification suppression.\n\t\tsuper::virtio_mem_barrier(BarrierType::General, self.order_platform);\n\t\t!self.used_ring()",
-    "upstream": "https://github.com/hermit-os/kernel/pull/2669"
-  },
-  {
-    "file": "src/drivers/virtio/virtqueue/packed.rs",
-    "before": "use core::sync::atomic::{Ordering, fence};\n",
-    "after": "",
-    "upstream": "https://github.com/hermit-os/kernel/pull/2669"
-  },
-  {
-    "file": "src/drivers/virtio/virtqueue/packed.rs",
-    "before": "use align_address::Align;",
-    "after": "use align_address::Align;\nuse mem_barrier::BarrierType;",
-    "upstream": "https://github.com/hermit-os/kernel/pull/2669"
-  },
-  {
-    "file": "src/drivers/virtio/virtqueue/packed.rs",
-    "before": "indexes: IndexAlloc,\n}",
-    "after": "indexes: IndexAlloc,\n\t/// Whether barriers must also order device accesses.\n\torder_platform: bool,\n}",
-    "upstream": "https://github.com/hermit-os/kernel/pull/2669"
-  },
-  {
-    "file": "src/drivers/virtio/virtqueue/packed.rs",
-    "before": "fn new(size: u16) -> Self {",
-    "after": "fn new(size: u16, order_platform: bool) -> Self {",
-    "upstream": "https://github.com/hermit-os/kernel/pull/2669"
-  },
-  {
-    "file": "src/drivers/virtio/virtqueue/packed.rs",
-    "before": "DescriptorRing {\n\t\t\tring,",
-    "after": "DescriptorRing {\n\t\t\torder_platform,\n\t\t\tring,",
-    "upstream": "https://github.com/hermit-os/kernel/pull/2669"
-  },
-  {
-    "file": "src/drivers/virtio/virtqueue/packed.rs",
-    "before": "fence(Ordering::SeqCst);",
-    "after": "super::virtio_mem_barrier(BarrierType::Write, self.order_platform);",
-    "upstream": "https://github.com/hermit-os/kernel/pull/2669"
-  },
-  {
-    "file": "src/drivers/virtio/virtqueue/packed.rs",
-    "before": "\t\tlet buff_id = desc.id.to_ne();",
-    "after": "\t\t// The device publishes buffer metadata before the used mark.\n\t\tsuper::virtio_mem_barrier(BarrierType::Read, self.desc_ring.order_platform);\n\t\tlet desc = &self.desc_ring.ring[usize::from(self.position)];\n\t\tlet buff_id = desc.id.to_ne();",
-    "upstream": "https://github.com/hermit-os/kernel/pull/2669"
-  },
-  {
-    "file": "src/drivers/virtio/virtqueue/packed.rs",
-    "before": "struct DevNotif {\n\t/// Indicates if VIRTIO_F_RING_EVENT_IDX has been negotiated\n\tf_notif_idx: bool,\n\t/// Actual structure to read from, if device wants notifs\n\traw: &'static mut pvirtq::EventSuppress,\n}",
-    "after": "struct DevNotif {\n\t/// Indicates if VIRTIO_F_RING_EVENT_IDX has been negotiated\n\tf_notif_idx: bool,\n\t/// Actual structure to read from, if device wants notifs\n\traw: &'static mut pvirtq::EventSuppress,\n\torder_platform: bool,\n}",
-    "upstream": "https://github.com/hermit-os/kernel/pull/2669"
-  },
-  {
-    "file": "src/drivers/virtio/virtqueue/packed.rs",
-    "before": "fn is_notif(&self) -> bool {\n\t\tself.raw.flags",
-    "after": "fn is_notif(&self) -> bool {\n\t\tsuper::virtio_mem_barrier(BarrierType::General, self.order_platform);\n\t\tself.raw.flags",
-    "upstream": "https://github.com/hermit-os/kernel/pull/2669"
-  },
-  {
-    "file": "src/drivers/virtio/virtqueue/packed.rs",
-    "before": "\t\tif self.raw.flags.desc_event_flags() != RingEventFlags::Desc {",
-    "after": "\t\tsuper::virtio_mem_barrier(BarrierType::General, self.order_platform);\n\t\tif self.raw.flags.desc_event_flags() != RingEventFlags::Desc {",
-    "upstream": "https://github.com/hermit-os/kernel/pull/2669"
-  },
-  {
-    "file": "src/drivers/virtio/virtqueue/packed.rs",
-    "before": "let mut descr_ring = DescriptorRing::new(vq_size);",
-    "after": "let order_platform = features.contains(virtio::F::ORDER_PLATFORM);\n\t\tlet mut descr_ring = DescriptorRing::new(vq_size, order_platform);",
-    "upstream": "https://github.com/hermit-os/kernel/pull/2669"
-  },
-  {
-    "file": "src/drivers/virtio/virtqueue/packed.rs",
-    "before": "let dev_event = DevNotif {\n\t\t\tf_notif_idx: false,",
-    "after": "let dev_event = DevNotif {\n\t\t\torder_platform,\n\t\t\tf_notif_idx: false,",
-    "upstream": "https://github.com/hermit-os/kernel/pull/2669"
-  },
-  {
-    "file": "src/scheduler/task/mod.rs",
-    "before": "\t\t\tlet mut cursor = self.list.cursor_front_mut();\n\t\t\tlet set_oneshot_timer = || {\n\t\t\t\t#[cfg(not(feature = \"net\"))]\n\t\t\t\tarch::set_oneshot_timer(wakeup_time);\n\t\t\t\t#[cfg(feature = \"net\")]\n\t\t\t\tmatch self.network_wakeup_time {\n\t\t\t\t\tSome(time) => {\n\t\t\t\t\t\tif time > wt {\n\t\t\t\t\t\t\tarch::set_oneshot_timer(wakeup_time);\n\t\t\t\t\t\t} else {\n\t\t\t\t\t\t\tarch::set_oneshot_timer(self.network_wakeup_time);\n\t\t\t\t\t\t}\n\t\t\t\t\t}\n\t\t\t\t\t_ => arch::set_oneshot_timer(wakeup_time),\n\t\t\t\t}\n\t\t\t};",
-    "after": "\t\t\t// A newly blocked task must never postpone an existing earlier waiter.\n\t\t\tlet earliest = self.list.front().and_then(|t| t.wakeup_time)\n\t\t\t\t.map_or(wt, |first| first.min(wt));\n\t\t\tlet mut cursor = self.list.cursor_front_mut();\n\t\t\tlet set_oneshot_timer = || {\n\t\t\t\t#[cfg(not(feature = \"net\"))]\n\t\t\t\tarch::set_oneshot_timer(Some(earliest));\n\t\t\t\t#[cfg(feature = \"net\")]\n\t\t\t\tarch::set_oneshot_timer(Some(self.network_wakeup_time\n\t\t\t\t\t.map_or(earliest, |network| earliest.min(network))));\n\t\t\t};",
-    "upstream": "https://github.com/hermit-os/kernel/issues/2639"
-  },
-  {
-    "file": "src/arch/x86_64/kernel/apic.rs",
-    "before": "pub fn init_local_apic() {",
-    "after": "/// Reconfigures an interrupt line for a legacy PCI interrupt.\n///\n/// [`init_ioapic`] sets up every line for the edge triggered, active high\n/// behavior of the ISA interrupts. PCI signals its interrupts level triggered\n/// and active low instead.\n#[cfg(feature = \"pci\")]\npub(crate) fn ioapic_set_pci_interrupt(irq: u8, apicid: u8) {\n\tassert!(irq <= 24);\n\n\tlet off = u32::from(irq * 2);\n\tlet ioredirect_upper = u32::from(apicid) << 24;\n\t// Vector, active low (bit 13) and level triggered (bit 15).\n\tlet ioredirect_lower = u32::from(0x20 + irq) | (1 << 13) | (1 << 15);\n\n\tdebug!(\"Configuring irq {irq} as level triggered, active low\");\n\n\tioapic_write(IOAPIC_REG_TABLE + off, ioredirect_lower);\n\tioapic_write(IOAPIC_REG_TABLE + off + 1, ioredirect_upper);\n}\n\npub fn init_local_apic() {",
-    "upstream": "https://github.com/hermit-os/kernel/pull/2611"
-  },
-  {
-    "file": "src/drivers/pci.rs",
-    "before": "\t\t\t\tSome(line)\n",
-    "after": "\t\t\t\t// A legacy PCI interrupt is signaled level triggered and active\n\t\t\t\t// low, while the IOAPIC defaults to the edge triggered, active\n\t\t\t\t// high behavior of the ISA interrupts. Without the correction a\n\t\t\t\t// passed-through device stops delivering interrupts after its\n\t\t\t\t// first one, because the host only unmasks the interrupt once the\n\t\t\t\t// guest has completed a level triggered one.\n\t\t\t\t#[cfg(target_arch = \"x86_64\")]\n\t\t\t\tcrate::arch::kernel::apic::ioapic_set_pci_interrupt(line, 0);\n\n\t\t\t\tSome(line)\n",
-    "upstream": "https://github.com/hermit-os/kernel/pull/2611"
+    "before": "use alloc::collections::vec_deque::VecDeque;\nuse core::future;\nuse core::pin::pin;\nuse core::task::{Poll, Waker, ready};\n\nuse async_lock::Mutex;\n\nuse crate::errno::Errno;\nuse crate::fd::{EventFlags, ObjectInterface, PollEvent};\nuse crate::io;\n\n#[derive(Debug)]\nstruct EventState {\n\tpub counter: u64,\n\tpub read_queue: VecDeque<Waker>,\n\tpub write_queue: VecDeque<Waker>,\n}\n\nimpl EventState {\n\tpub fn new(counter: u64) -> Self {\n\t\tSelf {\n\t\t\tcounter,\n\t\t\tread_queue: VecDeque::new(),\n\t\t\twrite_queue: VecDeque::new(),\n\t\t}\n\t}\n}\n\npub(crate) struct EventFd {\n\tstate: Mutex<EventState>,\n\tflags: EventFlags,\n}\n\nimpl EventFd {\n\tpub fn new(initval: u64, flags: EventFlags) -> Self {\n\t\tdebug!(\"Create EventFd {initval}, {flags:?}\");\n\t\tSelf {\n\t\t\tstate: Mutex::new(EventState::new(initval)),\n\t\t\tflags,\n\t\t}\n\t}\n}\n\nimpl ObjectInterface for EventFd {\n\tasync fn read(&self, buf: &mut [u8]) -> io::Result<usize> {\n\t\tlet len = size_of::<u64>();\n\n\t\tif buf.len() < len {\n\t\t\treturn Err(Errno::Inval);\n\t\t}\n\n\t\tfuture::poll_fn(|cx| {\n\t\t\tif self.flags.contains(EventFlags::EFD_SEMAPHORE) {\n\t\t\t\tlet mut pinned = pin!(self.state.lock());\n\t\t\t\tlet mut guard = ready!(pinned.as_mut().poll(cx));\n\t\t\t\tif guard.counter > 0 {\n\t\t\t\t\tguard.counter -= 1;\n\t\t\t\t\tbuf[..len].copy_from_slice(&u64::to_ne_bytes(1));\n\t\t\t\t\tif let Some(cx) = guard.write_queue.pop_front() {\n\t\t\t\t\t\tcx.wake_by_ref();\n\t\t\t\t\t}\n\t\t\t\t\tPoll::Ready(Ok(len))\n\t\t\t\t} else {\n\t\t\t\t\tguard.read_queue.push_back(cx.waker().clone());\n\t\t\t\t\tPoll::Pending\n\t\t\t\t}\n\t\t\t} else {\n\t\t\t\tlet mut pinned = pin!(self.state.lock());\n\t\t\t\tlet mut guard = ready!(pinned.as_mut().poll(cx));\n\t\t\t\tlet tmp = guard.counter;\n\t\t\t\tif tmp > 0 {\n\t\t\t\t\tguard.counter = 0;\n\t\t\t\t\tbuf[..len].copy_from_slice(&u64::to_ne_bytes(tmp));\n\t\t\t\t\tif let Some(cx) = guard.read_queue.pop_front() {\n\t\t\t\t\t\tcx.wake_by_ref();\n\t\t\t\t\t}\n\t\t\t\t\tPoll::Ready(Ok(len))\n\t\t\t\t} else if self.flags.contains(EventFlags::EFD_NONBLOCK) {\n\t\t\t\t\tPoll::Ready(Err(Errno::Again))\n\t\t\t\t} else {\n\t\t\t\t\tguard.read_queue.push_back(cx.waker().clone());\n\t\t\t\t\tPoll::Pending\n\t\t\t\t}\n\t\t\t}\n\t\t})\n\t\t.await\n\t}\n\n\tasync fn write(&self, buf: &[u8]) -> io::Result<usize> {\n\t\tlet len = size_of::<u64>();\n\n\t\tif buf.len() < len {\n\t\t\treturn Err(Errno::Inval);\n\t\t}\n\n\t\tlet c = u64::from_ne_bytes(buf[..len].try_into().unwrap());\n\n\t\tfuture::poll_fn(|cx| {\n\t\t\tlet mut pinned = pin!(self.state.lock());\n\t\t\tlet mut guard = ready!(pinned.as_mut().poll(cx));\n\t\t\tif u64::MAX - guard.counter > c {\n\t\t\t\tguard.counter += c;\n\t\t\t\tif self.flags.contains(EventFlags::EFD_SEMAPHORE) {\n\t\t\t\t\tfor _i in 0..c {\n\t\t\t\t\t\tlet Some(cx) = guard.read_queue.pop_front() else {\n\t\t\t\t\t\t\tbreak;\n\t\t\t\t\t\t};\n\n\t\t\t\t\t\tcx.wake_by_ref();\n\t\t\t\t\t}\n\t\t\t\t} else {\n\t\t\t\t\t// The eventfd is now readable. Wake *all* registered pollers, not\n\t\t\t\t\t// just one: a readable notification is level-triggered, and the\n\t\t\t\t\t// `poll`-based fd multiplexing re-registers a fresh waker on every\n\t\t\t\t\t// poll, so the queue accumulates stale wakers \u2014 waking only the\n\t\t\t\t\t// oldest (`pop_front`) can wake a dead waker and miss the real one.\n\t\t\t\t\tfor waker in guard.read_queue.drain(..) {\n\t\t\t\t\t\twaker.wake();\n\t\t\t\t\t}\n\t\t\t\t}\n\n\t\t\t\tPoll::Ready(Ok(len))\n\t\t\t} else if self.flags.contains(EventFlags::EFD_NONBLOCK) {\n\t\t\t\tPoll::Ready(Err(Errno::Again))\n\t\t\t} else {\n\t\t\t\tguard.write_queue.push_back(cx.waker().clone());\n\t\t\t\tPoll::Pending\n\t\t\t}\n\t\t})\n\t\t.await\n\t}\n\n\tasync fn poll(&self, event: PollEvent) -> io::Result<PollEvent> {\n\t\tlet guard = self.state.lock().await;\n\n\t\tlet mut available = PollEvent::empty();\n\n\t\tif guard.counter < u64::MAX - 1 {\n\t\t\tavailable.insert(PollEvent::POLLOUT | PollEvent::POLLWRNORM | PollEvent::POLLWRBAND);\n\t\t}\n\n\t\tif guard.counter > 0 {\n\t\t\tavailable.insert(PollEvent::POLLIN | PollEvent::POLLRDNORM | PollEvent::POLLRDBAND);\n\t\t}\n\n\t\tdrop(guard);\n\n\t\tlet ret = event & available;\n\n\t\tfuture::poll_fn(|cx| {\n\t\t\tif ret.is_empty() {\n\t\t\t\tlet mut pinned = pin!(self.state.lock());\n\t\t\t\tlet mut guard = ready!(pinned.as_mut().poll(cx));\n\t\t\t\tif event\n\t\t\t\t\t.intersects(PollEvent::POLLIN | PollEvent::POLLRDNORM | PollEvent::POLLRDBAND)\n\t\t\t\t{\n\t\t\t\t\tguard.read_queue.push_back(cx.waker().clone());\n\t\t\t\t\tPoll::Pending\n\t\t\t\t} else if event\n\t\t\t\t\t.intersects(PollEvent::POLLOUT | PollEvent::POLLWRNORM | PollEvent::POLLWRBAND)\n\t\t\t\t{\n\t\t\t\t\tguard.write_queue.push_back(cx.waker().clone());\n\t\t\t\t\tPoll::Pending\n\t\t\t\t} else {\n\t\t\t\t\tPoll::Ready(Ok(ret))\n\t\t\t\t}\n\t\t\t} else {\n\t\t\t\tPoll::Ready(Ok(ret))\n\t\t\t}\n\t\t})\n\t\t.await\n\t}\n}\n",
+    "after": "use alloc::collections::vec_deque::VecDeque;\nuse core::future::{self, Future};\nuse core::mem;\nuse core::pin::pin;\nuse core::task::{Poll, Waker, ready};\n\nuse async_lock::Mutex;\n\nuse crate::errno::Errno;\nuse crate::fd::{EventFlags, ObjectInterface, PollEvent};\nuse crate::io;\n\n#[derive(Debug)]\nstruct EventState {\n\tpub counter: u64,\n\tpub read_queue: VecDeque<Waker>,\n\tpub write_queue: VecDeque<Waker>,\n}\n\nimpl EventState {\n\tpub fn new(counter: u64) -> Self {\n\t\tSelf {\n\t\t\tcounter,\n\t\t\tread_queue: VecDeque::new(),\n\t\t\twrite_queue: VecDeque::new(),\n\t\t}\n\t}\n}\n\npub(crate) struct EventFd {\n\tstate: Mutex<EventState>,\n\tflags: EventFlags,\n}\n\nimpl EventFd {\n\tpub fn new(initval: u64, flags: EventFlags) -> Self {\n\t\tdebug!(\"Create EventFd {initval}, {flags:?}\");\n\t\tSelf {\n\t\t\tstate: Mutex::new(EventState::new(initval)),\n\t\t\tflags,\n\t\t}\n\t}\n}\n\nimpl ObjectInterface for EventFd {\n\tasync fn read(&self, buf: &mut [u8]) -> io::Result<usize> {\n\t\tlet len = mem::size_of::<u64>();\n\n\t\tif buf.len() < len {\n\t\t\treturn Err(Errno::Inval);\n\t\t}\n\n\t\tfuture::poll_fn(|cx| {\n\t\t\tif self.flags.contains(EventFlags::EFD_SEMAPHORE) {\n\t\t\t\tlet mut pinned = pin!(self.state.lock());\n\t\t\t\tlet mut guard = ready!(pinned.as_mut().poll(cx));\n\t\t\t\tif guard.counter > 0 {\n\t\t\t\t\tguard.counter -= 1;\n\t\t\t\t\tbuf[..len].copy_from_slice(&u64::to_ne_bytes(1));\n\t\t\t\t\twhile let Some(waker) = guard.write_queue.pop_front() {\n\t\t\t\t\t\twaker.wake();\n\t\t\t\t\t}\n\t\t\t\t\tPoll::Ready(Ok(len))\n\t\t\t\t} else {\n\t\t\t\t\tguard.read_queue.push_back(cx.waker().clone());\n\t\t\t\t\tPoll::Pending\n\t\t\t\t}\n\t\t\t} else {\n\t\t\t\tlet mut pinned = pin!(self.state.lock());\n\t\t\t\tlet mut guard = ready!(pinned.as_mut().poll(cx));\n\t\t\t\tlet tmp = guard.counter;\n\t\t\t\tif tmp > 0 {\n\t\t\t\t\tguard.counter = 0;\n\t\t\t\t\tbuf[..len].copy_from_slice(&u64::to_ne_bytes(tmp));\n\t\t\t\t\twhile let Some(waker) = guard.write_queue.pop_front() {\n\t\t\t\t\t\twaker.wake();\n\t\t\t\t\t}\n\t\t\t\t\tPoll::Ready(Ok(len))\n\t\t\t\t} else if self.flags.contains(EventFlags::EFD_NONBLOCK) {\n\t\t\t\t\tPoll::Ready(Err(Errno::Again))\n\t\t\t\t} else {\n\t\t\t\t\tguard.read_queue.push_back(cx.waker().clone());\n\t\t\t\t\tPoll::Pending\n\t\t\t\t}\n\t\t\t}\n\t\t})\n\t\t.await\n\t}\n\n\tasync fn write(&self, buf: &[u8]) -> io::Result<usize> {\n\t\tlet len = mem::size_of::<u64>();\n\n\t\tif buf.len() < len {\n\t\t\treturn Err(Errno::Inval);\n\t\t}\n\n\t\tlet c = u64::from_ne_bytes(buf[..len].try_into().unwrap());\n\n\t\tfuture::poll_fn(|cx| {\n\t\t\tlet mut pinned = pin!(self.state.lock());\n\t\t\tlet mut guard = ready!(pinned.as_mut().poll(cx));\n\t\t\tif u64::MAX - guard.counter > c {\n\t\t\t\tguard.counter += c;\n\t\t\t\t// poll_fds drops temporary poll futures, leaving cancelled waiters.\n\t\t\t\t// Notify every waiter; each must recheck the counter under the lock.\n\t\t\t\twhile let Some(waker) = guard.read_queue.pop_front() {\n\t\t\t\t\twaker.wake();\n\t\t\t\t}\n\n\t\t\t\tPoll::Ready(Ok(len))\n\t\t\t} else if self.flags.contains(EventFlags::EFD_NONBLOCK) {\n\t\t\t\tPoll::Ready(Err(Errno::Again))\n\t\t\t} else {\n\t\t\t\tguard.write_queue.push_back(cx.waker().clone());\n\t\t\t\tPoll::Pending\n\t\t\t}\n\t\t})\n\t\t.await\n\t}\n\n\tasync fn poll(&self, event: PollEvent) -> io::Result<PollEvent> {\n\t\tfuture::poll_fn(|cx| {\n\t\t\tlet mut pinned = pin!(self.state.lock());\n\t\t\tlet mut guard = ready!(pinned.as_mut().poll(cx));\n\t\t\tlet mut available = PollEvent::empty();\n\t\t\tif guard.counter < u64::MAX - 1 {\n\t\t\t\tavailable.insert(PollEvent::POLLOUT | PollEvent::POLLWRNORM | PollEvent::POLLWRBAND);\n\t\t\t}\n\t\t\tif guard.counter > 0 {\n\t\t\t\tavailable.insert(PollEvent::POLLIN | PollEvent::POLLRDNORM | PollEvent::POLLRDBAND);\n\t\t\t}\n\t\t\tlet ret = event & available;\n\t\t\tif !ret.is_empty() {\n\t\t\t\treturn Poll::Ready(Ok(ret));\n\t\t\t}\n\t\t\t// Check readiness and register under the same lock to avoid lost wakes.\n\t\t\tlet mut waiting = false;\n\t\t\tif event.intersects(PollEvent::POLLIN | PollEvent::POLLRDNORM | PollEvent::POLLRDBAND) {\n\t\t\t\tif !guard.read_queue.iter().any(|waker| waker.will_wake(cx.waker())) {\n\t\t\t\t\tguard.read_queue.push_back(cx.waker().clone());\n\t\t\t\t}\n\t\t\t\twaiting = true;\n\t\t\t}\n\t\t\tif event.intersects(PollEvent::POLLOUT | PollEvent::POLLWRNORM | PollEvent::POLLWRBAND) {\n\t\t\t\tif !guard.write_queue.iter().any(|waker| waker.will_wake(cx.waker())) {\n\t\t\t\t\tguard.write_queue.push_back(cx.waker().clone());\n\t\t\t\t}\n\t\t\t\twaiting = true;\n\t\t\t}\n\t\t\tif waiting { Poll::Pending } else { Poll::Ready(Ok(ret)) }\n\t\t})\n\t\t.await\n\t}\n}\n"
   },
   {
     "file": "src/drivers/pci.rs",
@@ -210,6 +82,12 @@
   {
     "file": "src/fs/mod.rs",
     "before": "\tconst UTC_BUILT_TIME: &str = build_time::build_time_utc!();",
-    "after": "\t// Use the same SOURCE_DATE_EPOCH-aware metadata as the startup banner.\n\tconst UTC_BUILT_TIME: &str = crate::built_info::BUILT_TIME_UTC;"
+    "after": "\t// Use the same SOURCE_DATE_EPOCH-aware metadata as the startup banner.\n\tconst UTC_BUILT_TIME: &str = crate::rt::built_info::BUILT_TIME_UTC;"
+  },
+  {
+    "file": "src/rt.rs",
+    "before": "mod built_info {",
+    "after": "pub(crate) mod built_info {",
+    "reason": "Share SOURCE_DATE_EPOCH-aware build metadata with procfs."
   }
 ]
