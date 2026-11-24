@@ -9,6 +9,9 @@ p = argparse.ArgumentParser(description=__doc__)
 p.add_argument("--kernel", required=True, type=pathlib.Path)
 a = p.parse_args()
 source = (a.kernel / "src/fd/eventfd.rs").read_text()
+# Host tests substitute only the privileged interrupt-mask/lock primitive;
+# eventfd readiness, waiter registration and notification code stays upstream.
+source = source.replace('use hermit_sync::InterruptTicketMutex;', 'use crate::InterruptTicketMutex;')
 with tempfile.TemporaryDirectory(prefix="signer-eventfd-test-") as temporary:
     root = pathlib.Path(temporary)
     (root / "src").mkdir()
@@ -17,13 +20,16 @@ name = "signer-eventfd-regression"
 version = "0.0.0"
 edition = "2024"
 [dependencies]
-async-lock = "=3.4.2"
-async-trait = "=0.1.89"
 bitflags = "=2.11.0"
 ''')
     (root / "src/eventfd.rs").write_text(source)
     (root / "src/lib.rs").write_text(r'''
 extern crate alloc;
+struct InterruptTicketMutex<T>(std::sync::Mutex<T>);
+impl<T> InterruptTicketMutex<T> {
+    fn new(value: T) -> Self { Self(std::sync::Mutex::new(value)) }
+    fn lock(&self) -> std::sync::MutexGuard<'_, T> { self.0.lock().unwrap() }
+}
 macro_rules! debug { ($($arg:tt)*) => {}; }
 mod errno { #[derive(Debug)] pub enum Errno { Inval, Again } }
 mod io { pub type Result<T> = core::result::Result<T, crate::errno::Errno>; }

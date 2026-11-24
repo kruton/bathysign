@@ -15,37 +15,6 @@
     "after": "block_on(async { v.write().await.connect(endpoint).await }, Some(core::time::Duration::from_secs(15)))"
   },
   {
-    "file": "src/executor/mod.rs",
-    "before": "\t\tlet _ = futex_wait_and_set(&self.futex, 0, timeout, Flags::RELATIVE, 0);",
-    "after": "\t\t// block_on supplies a Unix-epoch deadline; futex RELATIVE needs a duration.\n\t\tlet remaining = timeout.map(|deadline| deadline.saturating_sub(crate::arch::kernel::systemtime::now_micros()));\n\t\tlet _ = futex_wait_and_set(&self.futex, 0, remaining, Flags::RELATIVE, 0);"
-  },
-  {
-    "file": "src/scheduler/task/mod.rs",
-    "before": "pub fn custom_wakeup(&mut self, task: TaskHandle) -> Rc<RefCell<Task>> {",
-    "after": "pub fn custom_wakeup(&mut self, task: TaskHandle) -> Option<Rc<RefCell<Task>>> {"
-  },
-  {
-    "file": "src/scheduler/task/mod.rs",
-    "before": "return task_ref;",
-    "after": "return Some(task_ref);"
-  },
-  {
-    "file": "src/scheduler/task/mod.rs",
-    "before": "\t\tunreachable!();\n\t}\n\n\t/// Wakes up all tasks",
-    "after": "\t\t// A timer may already have moved this task into the ready queue while\n\t\t// its futex registration was still waiting to be removed. Do not queue\n\t\t// it twice when a concurrent wake notification arrives.\n\t\tNone\n\t}\n\n\t/// Wakes up all tasks"
-  },
-  {
-    "file": "src/scheduler/mod.rs",
-    "before": "\t\t\tlet task = self.blocked_tasks.custom_wakeup(task);\n\t\t\tself.ready_queue.push(task);",
-    "after": "\t\t\tif let Some(task) = self.blocked_tasks.custom_wakeup(task) {\n\t\t\t\tself.ready_queue.push(task);\n\t\t\t}",
-    "expected_count": 2
-  },
-  {
-    "file": "src/scheduler/mod.rs",
-    "before": "\t\t\t\tlet task = self.blocked_tasks.custom_wakeup(task);\n\t\t\t\tself.ready_queue.push(task);",
-    "after": "\t\t\t\tif let Some(task) = self.blocked_tasks.custom_wakeup(task) {\n\t\t\t\t\tself.ready_queue.push(task);\n\t\t\t\t}"
-  },
-  {
     "file": "src/syscalls/socket/addrinfo.rs",
     "before": "let ipv6_results = try_io!(ipv6_results.transpose()).unwrap_or_default();",
     "after": "// An absent AAAA record must not prevent an IPv4 or mapped fallback.\n\tlet ipv6_results = if want_ipv4 || ai_flags.contains(Ai::V4MAPPED) {\n\t\tipv6_results.transpose().unwrap_or_default().unwrap_or_default()\n\t} else {\n\t\ttry_io!(ipv6_results.transpose()).unwrap_or_default()\n\t};"
@@ -56,38 +25,10 @@
     "after": "// Likewise, keep usable IPv6 results if the A query fails.\n\tlet ipv4_results = if !ipv6_results.is_empty() {\n\t\tipv4_results.transpose().unwrap_or_default().unwrap_or_default()\n\t} else {\n\t\ttry_io!(ipv4_results.transpose()).unwrap_or_default()\n\t};"
   },
   {
-    "file": "src/fd/eventfd.rs",
-    "before": "use alloc::collections::vec_deque::VecDeque;\nuse core::future;\nuse core::pin::pin;\nuse core::task::{Poll, Waker, ready};\n\nuse async_lock::Mutex;\n\nuse crate::errno::Errno;\nuse crate::fd::{EventFlags, ObjectInterface, PollEvent};\nuse crate::io;\n\n#[derive(Debug)]\nstruct EventState {\n\tpub counter: u64,\n\tpub read_queue: VecDeque<Waker>,\n\tpub write_queue: VecDeque<Waker>,\n}\n\nimpl EventState {\n\tpub fn new(counter: u64) -> Self {\n\t\tSelf {\n\t\t\tcounter,\n\t\t\tread_queue: VecDeque::new(),\n\t\t\twrite_queue: VecDeque::new(),\n\t\t}\n\t}\n}\n\npub(crate) struct EventFd {\n\tstate: Mutex<EventState>,\n\tflags: EventFlags,\n}\n\nimpl EventFd {\n\tpub fn new(initval: u64, flags: EventFlags) -> Self {\n\t\tdebug!(\"Create EventFd {initval}, {flags:?}\");\n\t\tSelf {\n\t\t\tstate: Mutex::new(EventState::new(initval)),\n\t\t\tflags,\n\t\t}\n\t}\n}\n\nimpl ObjectInterface for EventFd {\n\tasync fn read(&self, buf: &mut [u8]) -> io::Result<usize> {\n\t\tlet len = size_of::<u64>();\n\n\t\tif buf.len() < len {\n\t\t\treturn Err(Errno::Inval);\n\t\t}\n\n\t\tfuture::poll_fn(|cx| {\n\t\t\tif self.flags.contains(EventFlags::EFD_SEMAPHORE) {\n\t\t\t\tlet mut pinned = pin!(self.state.lock());\n\t\t\t\tlet mut guard = ready!(pinned.as_mut().poll(cx));\n\t\t\t\tif guard.counter > 0 {\n\t\t\t\t\tguard.counter -= 1;\n\t\t\t\t\tbuf[..len].copy_from_slice(&u64::to_ne_bytes(1));\n\t\t\t\t\tif let Some(cx) = guard.write_queue.pop_front() {\n\t\t\t\t\t\tcx.wake_by_ref();\n\t\t\t\t\t}\n\t\t\t\t\tPoll::Ready(Ok(len))\n\t\t\t\t} else {\n\t\t\t\t\tguard.read_queue.push_back(cx.waker().clone());\n\t\t\t\t\tPoll::Pending\n\t\t\t\t}\n\t\t\t} else {\n\t\t\t\tlet mut pinned = pin!(self.state.lock());\n\t\t\t\tlet mut guard = ready!(pinned.as_mut().poll(cx));\n\t\t\t\tlet tmp = guard.counter;\n\t\t\t\tif tmp > 0 {\n\t\t\t\t\tguard.counter = 0;\n\t\t\t\t\tbuf[..len].copy_from_slice(&u64::to_ne_bytes(tmp));\n\t\t\t\t\tif let Some(cx) = guard.read_queue.pop_front() {\n\t\t\t\t\t\tcx.wake_by_ref();\n\t\t\t\t\t}\n\t\t\t\t\tPoll::Ready(Ok(len))\n\t\t\t\t} else if self.flags.contains(EventFlags::EFD_NONBLOCK) {\n\t\t\t\t\tPoll::Ready(Err(Errno::Again))\n\t\t\t\t} else {\n\t\t\t\t\tguard.read_queue.push_back(cx.waker().clone());\n\t\t\t\t\tPoll::Pending\n\t\t\t\t}\n\t\t\t}\n\t\t})\n\t\t.await\n\t}\n\n\tasync fn write(&self, buf: &[u8]) -> io::Result<usize> {\n\t\tlet len = size_of::<u64>();\n\n\t\tif buf.len() < len {\n\t\t\treturn Err(Errno::Inval);\n\t\t}\n\n\t\tlet c = u64::from_ne_bytes(buf[..len].try_into().unwrap());\n\n\t\tfuture::poll_fn(|cx| {\n\t\t\tlet mut pinned = pin!(self.state.lock());\n\t\t\tlet mut guard = ready!(pinned.as_mut().poll(cx));\n\t\t\tif u64::MAX - guard.counter > c {\n\t\t\t\tguard.counter += c;\n\t\t\t\tif self.flags.contains(EventFlags::EFD_SEMAPHORE) {\n\t\t\t\t\tfor _i in 0..c {\n\t\t\t\t\t\tlet Some(cx) = guard.read_queue.pop_front() else {\n\t\t\t\t\t\t\tbreak;\n\t\t\t\t\t\t};\n\n\t\t\t\t\t\tcx.wake_by_ref();\n\t\t\t\t\t}\n\t\t\t\t} else {\n\t\t\t\t\t// The eventfd is now readable. Wake *all* registered pollers, not\n\t\t\t\t\t// just one: a readable notification is level-triggered, and the\n\t\t\t\t\t// `poll`-based fd multiplexing re-registers a fresh waker on every\n\t\t\t\t\t// poll, so the queue accumulates stale wakers \u2014 waking only the\n\t\t\t\t\t// oldest (`pop_front`) can wake a dead waker and miss the real one.\n\t\t\t\t\tfor waker in guard.read_queue.drain(..) {\n\t\t\t\t\t\twaker.wake();\n\t\t\t\t\t}\n\t\t\t\t}\n\n\t\t\t\tPoll::Ready(Ok(len))\n\t\t\t} else if self.flags.contains(EventFlags::EFD_NONBLOCK) {\n\t\t\t\tPoll::Ready(Err(Errno::Again))\n\t\t\t} else {\n\t\t\t\tguard.write_queue.push_back(cx.waker().clone());\n\t\t\t\tPoll::Pending\n\t\t\t}\n\t\t})\n\t\t.await\n\t}\n\n\tasync fn poll(&self, event: PollEvent) -> io::Result<PollEvent> {\n\t\tlet guard = self.state.lock().await;\n\n\t\tlet mut available = PollEvent::empty();\n\n\t\tif guard.counter < u64::MAX - 1 {\n\t\t\tavailable.insert(PollEvent::POLLOUT | PollEvent::POLLWRNORM | PollEvent::POLLWRBAND);\n\t\t}\n\n\t\tif guard.counter > 0 {\n\t\t\tavailable.insert(PollEvent::POLLIN | PollEvent::POLLRDNORM | PollEvent::POLLRDBAND);\n\t\t}\n\n\t\tdrop(guard);\n\n\t\tlet ret = event & available;\n\n\t\tfuture::poll_fn(|cx| {\n\t\t\tif ret.is_empty() {\n\t\t\t\tlet mut pinned = pin!(self.state.lock());\n\t\t\t\tlet mut guard = ready!(pinned.as_mut().poll(cx));\n\t\t\t\tif event\n\t\t\t\t\t.intersects(PollEvent::POLLIN | PollEvent::POLLRDNORM | PollEvent::POLLRDBAND)\n\t\t\t\t{\n\t\t\t\t\tguard.read_queue.push_back(cx.waker().clone());\n\t\t\t\t\tPoll::Pending\n\t\t\t\t} else if event\n\t\t\t\t\t.intersects(PollEvent::POLLOUT | PollEvent::POLLWRNORM | PollEvent::POLLWRBAND)\n\t\t\t\t{\n\t\t\t\t\tguard.write_queue.push_back(cx.waker().clone());\n\t\t\t\t\tPoll::Pending\n\t\t\t\t} else {\n\t\t\t\t\tPoll::Ready(Ok(ret))\n\t\t\t\t}\n\t\t\t} else {\n\t\t\t\tPoll::Ready(Ok(ret))\n\t\t\t}\n\t\t})\n\t\t.await\n\t}\n}\n",
-    "after": "use alloc::collections::vec_deque::VecDeque;\nuse core::future::{self, Future};\nuse core::mem;\nuse core::pin::pin;\nuse core::task::{Poll, Waker, ready};\n\nuse async_lock::Mutex;\n\nuse crate::errno::Errno;\nuse crate::fd::{EventFlags, ObjectInterface, PollEvent};\nuse crate::io;\n\n#[derive(Debug)]\nstruct EventState {\n\tpub counter: u64,\n\tpub read_queue: VecDeque<Waker>,\n\tpub write_queue: VecDeque<Waker>,\n}\n\nimpl EventState {\n\tpub fn new(counter: u64) -> Self {\n\t\tSelf {\n\t\t\tcounter,\n\t\t\tread_queue: VecDeque::new(),\n\t\t\twrite_queue: VecDeque::new(),\n\t\t}\n\t}\n}\n\npub(crate) struct EventFd {\n\tstate: Mutex<EventState>,\n\tflags: EventFlags,\n}\n\nimpl EventFd {\n\tpub fn new(initval: u64, flags: EventFlags) -> Self {\n\t\tdebug!(\"Create EventFd {initval}, {flags:?}\");\n\t\tSelf {\n\t\t\tstate: Mutex::new(EventState::new(initval)),\n\t\t\tflags,\n\t\t}\n\t}\n}\n\nimpl ObjectInterface for EventFd {\n\tasync fn read(&self, buf: &mut [u8]) -> io::Result<usize> {\n\t\tlet len = mem::size_of::<u64>();\n\n\t\tif buf.len() < len {\n\t\t\treturn Err(Errno::Inval);\n\t\t}\n\n\t\tfuture::poll_fn(|cx| {\n\t\t\tif self.flags.contains(EventFlags::EFD_SEMAPHORE) {\n\t\t\t\tlet mut pinned = pin!(self.state.lock());\n\t\t\t\tlet mut guard = ready!(pinned.as_mut().poll(cx));\n\t\t\t\tif guard.counter > 0 {\n\t\t\t\t\tguard.counter -= 1;\n\t\t\t\t\tbuf[..len].copy_from_slice(&u64::to_ne_bytes(1));\n\t\t\t\t\twhile let Some(waker) = guard.write_queue.pop_front() {\n\t\t\t\t\t\twaker.wake();\n\t\t\t\t\t}\n\t\t\t\t\tPoll::Ready(Ok(len))\n\t\t\t\t} else {\n\t\t\t\t\tguard.read_queue.push_back(cx.waker().clone());\n\t\t\t\t\tPoll::Pending\n\t\t\t\t}\n\t\t\t} else {\n\t\t\t\tlet mut pinned = pin!(self.state.lock());\n\t\t\t\tlet mut guard = ready!(pinned.as_mut().poll(cx));\n\t\t\t\tlet tmp = guard.counter;\n\t\t\t\tif tmp > 0 {\n\t\t\t\t\tguard.counter = 0;\n\t\t\t\t\tbuf[..len].copy_from_slice(&u64::to_ne_bytes(tmp));\n\t\t\t\t\twhile let Some(waker) = guard.write_queue.pop_front() {\n\t\t\t\t\t\twaker.wake();\n\t\t\t\t\t}\n\t\t\t\t\tPoll::Ready(Ok(len))\n\t\t\t\t} else if self.flags.contains(EventFlags::EFD_NONBLOCK) {\n\t\t\t\t\tPoll::Ready(Err(Errno::Again))\n\t\t\t\t} else {\n\t\t\t\t\tguard.read_queue.push_back(cx.waker().clone());\n\t\t\t\t\tPoll::Pending\n\t\t\t\t}\n\t\t\t}\n\t\t})\n\t\t.await\n\t}\n\n\tasync fn write(&self, buf: &[u8]) -> io::Result<usize> {\n\t\tlet len = mem::size_of::<u64>();\n\n\t\tif buf.len() < len {\n\t\t\treturn Err(Errno::Inval);\n\t\t}\n\n\t\tlet c = u64::from_ne_bytes(buf[..len].try_into().unwrap());\n\n\t\tfuture::poll_fn(|cx| {\n\t\t\tlet mut pinned = pin!(self.state.lock());\n\t\t\tlet mut guard = ready!(pinned.as_mut().poll(cx));\n\t\t\tif u64::MAX - guard.counter > c {\n\t\t\t\tguard.counter += c;\n\t\t\t\t// poll_fds drops temporary poll futures, leaving cancelled waiters.\n\t\t\t\t// Notify every waiter; each must recheck the counter under the lock.\n\t\t\t\twhile let Some(waker) = guard.read_queue.pop_front() {\n\t\t\t\t\twaker.wake();\n\t\t\t\t}\n\n\t\t\t\tPoll::Ready(Ok(len))\n\t\t\t} else if self.flags.contains(EventFlags::EFD_NONBLOCK) {\n\t\t\t\tPoll::Ready(Err(Errno::Again))\n\t\t\t} else {\n\t\t\t\tguard.write_queue.push_back(cx.waker().clone());\n\t\t\t\tPoll::Pending\n\t\t\t}\n\t\t})\n\t\t.await\n\t}\n\n\tasync fn poll(&self, event: PollEvent) -> io::Result<PollEvent> {\n\t\tfuture::poll_fn(|cx| {\n\t\t\tlet mut pinned = pin!(self.state.lock());\n\t\t\tlet mut guard = ready!(pinned.as_mut().poll(cx));\n\t\t\tlet mut available = PollEvent::empty();\n\t\t\tif guard.counter < u64::MAX - 1 {\n\t\t\t\tavailable.insert(PollEvent::POLLOUT | PollEvent::POLLWRNORM | PollEvent::POLLWRBAND);\n\t\t\t}\n\t\t\tif guard.counter > 0 {\n\t\t\t\tavailable.insert(PollEvent::POLLIN | PollEvent::POLLRDNORM | PollEvent::POLLRDBAND);\n\t\t\t}\n\t\t\tlet ret = event & available;\n\t\t\tif !ret.is_empty() {\n\t\t\t\treturn Poll::Ready(Ok(ret));\n\t\t\t}\n\t\t\t// Check readiness and register under the same lock to avoid lost wakes.\n\t\t\tlet mut waiting = false;\n\t\t\tif event.intersects(PollEvent::POLLIN | PollEvent::POLLRDNORM | PollEvent::POLLRDBAND) {\n\t\t\t\tif !guard.read_queue.iter().any(|waker| waker.will_wake(cx.waker())) {\n\t\t\t\t\tguard.read_queue.push_back(cx.waker().clone());\n\t\t\t\t}\n\t\t\t\twaiting = true;\n\t\t\t}\n\t\t\tif event.intersects(PollEvent::POLLOUT | PollEvent::POLLWRNORM | PollEvent::POLLWRBAND) {\n\t\t\t\tif !guard.write_queue.iter().any(|waker| waker.will_wake(cx.waker())) {\n\t\t\t\t\tguard.write_queue.push_back(cx.waker().clone());\n\t\t\t\t}\n\t\t\t\twaiting = true;\n\t\t\t}\n\t\t\tif waiting { Poll::Pending } else { Poll::Ready(Ok(ret)) }\n\t\t})\n\t\t.await\n\t}\n}\n"
-  },
-  {
     "file": "src/drivers/pci.rs",
     "before": "if matches!(line, 16..254) {",
     "after": "if matches!(line, 16..=254) {",
     "upstream": "https://github.com/hermit-os/kernel/pull/2611",
     "reason": "Reject the full PCI reserved IRQ range before IOAPIC programming."
-  },
-  {
-    "file": "src/syscalls/mod.rs",
-    "before": "\t\tif len < 0 {\n\t\t\treturn len;\n\t\t}\n\n\t\tread_bytes += len;",
-    "after": "\t\tif len < 0 {\n\t\t\t// Report progress before a later error; callers must not retry bytes\n\t\t\t// already transferred (notably TLS records under backpressure).\n\t\t\treturn if read_bytes > 0 { read_bytes } else { len };\n\t\t}\n\n\t\tread_bytes += len;",
-    "reason": "Preserve partial vectored I/O progress when a later buffer returns an error."
-  },
-  {
-    "file": "src/syscalls/mod.rs",
-    "before": "\t\tif len < 0 {\n\t\t\treturn len;\n\t\t}\n\n\t\twritten_bytes += len;",
-    "after": "\t\tif len < 0 {\n\t\t\t// Report progress before a later error; callers must not retry bytes\n\t\t\t// already transferred (notably TLS records under backpressure).\n\t\t\treturn if written_bytes > 0 { written_bytes } else { len };\n\t\t}\n\n\t\twritten_bytes += len;",
-    "reason": "Preserve partial vectored I/O progress when a later buffer returns an error."
-  },
-  {
-    "file": "src/fs/mod.rs",
-    "before": "\tconst UTC_BUILT_TIME: &str = build_time::build_time_utc!();",
-    "after": "\t// Use the same SOURCE_DATE_EPOCH-aware metadata as the startup banner.\n\tconst UTC_BUILT_TIME: &str = crate::rt::built_info::BUILT_TIME_UTC;"
-  },
-  {
-    "file": "src/rt.rs",
-    "before": "mod built_info {",
-    "after": "pub(crate) mod built_info {",
-    "reason": "Share SOURCE_DATE_EPOCH-aware build metadata with procfs."
   }
 ]

@@ -961,10 +961,10 @@ fn connect(
         let destination = *addr;
         async move {
             // The pinned Hermit kernel completes connect synchronously and
-            // reports failures directly. It does not implement SO_ERROR,
-            // which Tokio's connect_mio queries after a successful connect.
-            // Register the already-connected stream instead; never suppress
-            // a connect error or invent a successful SO_ERROR result.
+            // reports failures directly. Keep the synchronous operation off
+            // the async executor, then register the already-connected stream.
+            // SO_ERROR is supported by the kernel, but it does not make the
+            // underlying connect operation asynchronous.
             let stream = tokio::task::spawn_blocking(move || {
                 socket.connect(&destination.into())?;
                 use std::os::hermit::io::{FromRawFd, IntoRawFd};
