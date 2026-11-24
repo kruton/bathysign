@@ -25,9 +25,10 @@ apic = (args.kernel / "src/arch/x86_64/kernel/apic.rs").read_text()
 pci = (args.kernel / "src/drivers/pci.rs").read_text()
 code = r'''
 #![allow(dead_code)]
-macro_rules! debug { ($($arg:tt)*) => {}; }
-macro_rules! warn { ($($arg:tt)*) => {}; }
-macro_rules! error { ($($arg:tt)*) => {}; }
+macro_rules! info { ($($arg:tt)*) => {{}}; }
+macro_rules! debug { ($($arg:tt)*) => {{}}; }
+macro_rules! warn { ($($arg:tt)*) => {{}}; }
+macro_rules! error { ($($arg:tt)*) => {{}}; }
 mod arch { pub mod kernel { pub mod apic {
     use std::{collections::BTreeMap, sync::Mutex};
     const IOAPIC_REG_TABLE: u32 = 0x10;
@@ -35,11 +36,25 @@ mod arch { pub mod kernel { pub mod apic {
     fn ioapic_write(register: u32, value: u32) {
         REGISTERS.lock().unwrap().insert(register, value);
     }
+    const LOCAL_APIC_VECTORS_START: u32 = 0xe0;
+    struct Ioapic { addr: &'static u8, gsis: std::ops::Range<u32> }
+    impl Ioapic {
+        fn version(&self) -> u8 { 1 }
+        fn set_redirection(&self, gsi: u32, lower: u32, upper: u32) {
+            assert!(self.gsis.contains(&gsi));
+            ioapic_write(IOAPIC_REG_TABLE + 2*gsi, lower);
+            ioapic_write(IOAPIC_REG_TABLE + 2*gsi + 1, upper);
+        }
+    }
+    struct ControllerLock(Mutex<Vec<Ioapic>>);
+    impl ControllerLock { fn lock(&self) -> std::sync::MutexGuard<'_, Vec<Ioapic>> { self.0.lock().unwrap() } }
+    static IOAPICS: ControllerLock = ControllerLock(Mutex::new(Vec::new()));
     __ISA__
+    __REDIRECTION__
     __PCI__
-    pub fn reset() { REGISTERS.lock().unwrap().clear(); }
+    pub fn reset() { REGISTERS.lock().unwrap().clear(); *IOAPICS.lock() = vec![Ioapic { addr: &0, gsis: 0..24 }]; }
     pub fn registers() -> BTreeMap<u32, u32> { REGISTERS.lock().unwrap().clone() }
-    pub fn initialize_isa() { for irq in 0..24 { ioapic_set_interrupt(irq, 0, true); } }
+    pub fn initialize_isa() { init_ioapic(); }
 }}}
 type InterruptLine = u8;
 #[derive(Clone, Copy)] struct EndpointHeader { pin: u8, line: u8 }
@@ -83,7 +98,8 @@ use arch::kernel::apic;
     assert!(apic::registers().is_empty());
 }
 '''
-code = code.replace("__ISA__", method(apic, "fn ioapic_set_interrupt("))
+code = code.replace("__ISA__", method(apic, "fn init_ioapic("))
+code = code.replace("__REDIRECTION__", method(apic, "fn ioapic_set_redirection("))
 code = code.replace("__PCI__", method(apic, "pub(crate) fn ioapic_set_pci_interrupt("))
 code = code.replace("__DISCOVERY__", method(pci, "pub fn get_irq("))
 with tempfile.TemporaryDirectory(prefix="signer-pci-test-") as tmp:

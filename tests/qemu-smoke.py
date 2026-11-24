@@ -25,7 +25,7 @@ with tempfile.TemporaryDirectory(prefix="bathysign-smoke-") as temporary:
         if name=="tls":
             run(["openssl","req","-new","-key",secret/"tls.key.pem","-out",secret/"tls.csr","-subj","/CN=localhost"])
             extensions=secret/"tls.ext"
-            extensions.write_text("subjectAltName=DNS:localhost,IP:127.0.0.1,IP:10.0.2.2\nbasicConstraints=critical,CA:FALSE\nextendedKeyUsage=serverAuth\n")
+            extensions.write_text("subjectAltName=DNS:localhost,IP:127.0.0.1,IP:10.0.2.2\nbasicConstraints=critical,CA:FALSE\nextendedKeyUsage=serverAuth\nsubjectKeyIdentifier=hash\nauthorityKeyIdentifier=keyid:always\n")
             run(["openssl","x509","-req","-in",secret/"tls.csr","-CA",secret/"ca.pem","-CAkey",secret/"ca.key.pem","-CAcreateserial","-out",secret/"tls.pem","-days","2","-extfile",extensions])
         else: run(args)
     subprocess.run(["openssl","verify","-x509_strict","-purpose","sslserver","-CAfile",secret/"ca.pem",secret/"tls.pem"],check=True)

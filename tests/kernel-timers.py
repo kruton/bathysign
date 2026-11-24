@@ -35,19 +35,7 @@ struct BlockedTask { task: Rc<RefCell<Task>>, wakeup_time: Option<u64> }
 impl BlockedTask {
     fn new(task: Rc<RefCell<Task>>, wakeup_time: Option<u64>) -> Self { Self { task, wakeup_time } }
 }
-#[derive(Default)] struct List(Vec<BlockedTask>);
-impl List {
-    fn front(&self) -> Option<&BlockedTask> { self.0.first() }
-    fn push_back(&mut self, task: BlockedTask) { self.0.push(task); }
-    fn cursor_front_mut(&mut self) -> Cursor<'_> { Cursor { list: self, index: 0 } }
-}
-struct Cursor<'a> { list: &'a mut List, index: usize }
-impl Cursor<'_> {
-    fn current(&self) -> Option<&BlockedTask> { self.list.0.get(self.index) }
-    fn move_next(&mut self) { self.index += 1; }
-    fn insert_before(&mut self, task: BlockedTask) { self.list.0.insert(self.index, task); }
-}
-#[derive(Default)] struct BlockedTaskQueue { list: List, network_wakeup_time: Option<u64> }
+#[derive(Default)] struct BlockedTaskQueue { list: Vec<BlockedTask> }
 impl BlockedTaskQueue {
 __METHODS__
 }
@@ -61,7 +49,7 @@ fn armed() -> Option<u64> { *arch::TIMER.lock().unwrap() }
     add(&mut q, Some(5_000_000)); assert_eq!(armed(), Some(200_000));
     add(&mut q, Some(1_000_000)); assert_eq!(armed(), Some(200_000));
     add(&mut q, Some(100_000)); assert_eq!(armed(), Some(100_000));
-    assert_eq!(q.list.0.iter().map(|n| n.wakeup_time).collect::<Vec<_>>(), vec![Some(100_000),Some(200_000),Some(1_000_000),Some(5_000_000)]);
+    assert_eq!(q.list.iter().map(|n| n.wakeup_time).collect::<Vec<_>>(), vec![Some(100_000),Some(200_000),Some(1_000_000),Some(5_000_000)]);
 }
 #[test] fn indefinite_wait_does_not_disarm_a_deadline() {
     let mut q = BlockedTaskQueue::default();
@@ -85,7 +73,6 @@ timer_source = (args.kernel / 'src/scheduler/timer_interrupts.rs').read_text()
 a = timer_source.index('pub fn create_timer_abs(')
 b = timer_source.index('/// Clears', a)
 # Execute the actual upstream timer arbitration against a recorded controller.
-code = code.replace('struct BlockedTaskQueue { list: List, network_wakeup_time: Option<u64> }', 'struct BlockedTaskQueue { list: List }')
 code = code.replace('#[derive(Default)] struct BlockedTaskQueue', r'''#[derive(PartialEq, Eq)] enum Source { Scheduler, Network }
 struct Slot { source: Source, wakeup_time: u64 }
 struct Timers([Slot; 2]);
@@ -106,7 +93,18 @@ start = code.index('        q.add_network_timer(Some(80_000_000));')
 end = code.index('    }', start)
 code = code[:start] + code[end:]
 code = code.replace('for network in [50_000, 500_000, 50_000_000] {', 'for network in [50_000, 500_000, 50_000_000] {\n        for slot in &mut core_scheduler().timers.0 { slot.wakeup_time = u64::MAX; }')
-methods = method('pub fn add(')
+code = code.replace('enum TaskStatus { Running, Blocked }', 'enum TaskStatus { Running, Blocked, Ready }')
+code = code.replace('struct Task { id: u64, status: TaskStatus }', 'struct Task { id: u64, status: TaskStatus, core_id: u64 }\nfn core_id() -> u64 { 0 }\nstruct TaskHandle(u64); impl TaskHandle { fn get_id(&self) -> u64 { self.0 } }')
+code = code.replace('id: 1, status: TaskStatus::Running', 'id: 1, status: TaskStatus::Running, core_id: 0')
+code += r'''
+#[test] fn duplicate_wakeup_is_ignored() {
+    let mut q = BlockedTaskQueue::default();
+    add(&mut q, None);
+    assert!(q.custom_wakeup(TaskHandle(1)).is_some());
+    assert!(q.custom_wakeup(TaskHandle(1)).is_none());
+}
+'''
+methods = method('pub fn add(') + method('pub fn custom_wakeup(') + method('fn mark_ready(')
 with tempfile.TemporaryDirectory(prefix='signer-timer-test-') as tmp:
     root = Path(tmp)
     rust = root / 'timers.rs'

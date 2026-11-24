@@ -12,7 +12,7 @@
   "bundletool_url": "https://github.com/google/bundletool/releases/download/1.18.3/bundletool-all-1.18.3.jar",
   "bundletool_sha256": "a099cfa1543f55593bc2ed16a70a7c67fe54b1747bb7301f37fdfd6d91028e29",
   "apksig_source_tree_sha256": "05bfbf30d249bb53b9f851afddbcc426389073a21e4c0806e9d790f5737591f3",
-  "hermit_kernel_revision": "b87f9336543ac965dd2b2bb7b5951de752aebb9d",
-  "hermit_kernel_url": "https://api.github.com/repos/hermit-os/kernel/tarball/b87f9336543ac965dd2b2bb7b5951de752aebb9d",
-  "hermit_kernel_sha256": "d0b70131d001624aab9dc5d7be397b7e82c0548c32217f34e69733bcbc15ae2a"
+  "hermit_kernel_revision": "5ed2a2fc0f0275e5efd9c9ff31db5539b96986cf",
+  "hermit_kernel_url": "https://api.github.com/repos/hermit-os/kernel/tarball/5ed2a2fc0f0275e5efd9c9ff31db5539b96986cf",
+  "hermit_kernel_sha256": "3621f0ee1df423fe330f5f7c401cfb69490b3cc4d809b07249e9b9e174195992"
 }
